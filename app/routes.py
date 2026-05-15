@@ -80,6 +80,12 @@ def constraints():
     return render_template("constraints.html", r=results)
 
 
+@bp.route("/noise")
+def noise():
+    results = analysis.run_noise_analysis()
+    return render_template("noise.html", r=results)
+
+
 # ── JSON API endpoints ─────────────────────────────────────────────────────
 
 @bp.route("/api/status")
@@ -147,5 +153,12 @@ def api_constraints():
     if not analysis.server_is_available():
         return jsonify({"error": "TCP server not available"}), 503
     results = analysis.run_constraint_analysis()
+    results.pop("chart", None)
+    return jsonify(results)
+
+
+@bp.route("/api/noise")
+def api_noise():
+    results = analysis.run_noise_analysis()
     results.pop("chart", None)
     return jsonify(results)

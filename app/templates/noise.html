@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Noise Sensitivity — Predictor Dashboard{% endblock %}
+
+{% block content %}
+<h1>Noise / Process Variation Sensitivity</h1>
+<p style="color: var(--text-muted);">
+    Trained on {{ r.n_train }} observations at each noise level, evaluated on
+    {{ r.n_test }} noise-free test samples.  Tests whether the modelless predictor
+    remains stable as observation noise increases.
+    <strong>Does not require the TCP server</strong> — data is generated client-side.
+</p>
+
+<div class="card-grid">
+    <div class="stat-card">
+        <div class="value">{{ r.noise_levels|length }}</div>
+        <div class="label">Noise Levels Tested</div>
+    </div>
+    <div class="stat-card" style="border-left: 4px solid {{ '#2ca02c' if r.all_safe else '#d62728' }};">
+        <div class="value" style="color: {{ '#2ca02c' if r.all_safe else '#d62728' }};">
+            {{ "ALL SAFE" if r.all_safe else "SOME UNSAFE" }}
+        </div>
+        <div class="label">Constraints Across All Levels</div>
+    </div>
+</div>
+
+<h2>Metrics by Noise Level</h2>
+<table>
+    <thead>
+        <tr>
+            <th rowspan="2">Level</th>
+            <th rowspan="2">σ</th>
+            <th colspan="3">Yield</th>
+            <th colspan="3">Purity</th>
+            <th rowspan="2">Opt Match</th>
+            <th rowspan="2">Safe?</th>
+        </tr>
+        <tr>
+            <th>R²</th><th>MAE</th><th>RMSE</th>
+            <th>R²</th><th>MAE</th><th>RMSE</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in r.rows %}
+        <tr>
+            <td><strong>{{ row.noise_label }}</strong></td>
+            <td>{{ "%.2f"|format(row.noise_std) }}</td>
+            <td>{{ "%.6f"|format(row.yield_r2) }}</td>
+            <td>{{ "%.4f"|format(row.yield_mae) }}</td>
+            <td>{{ "%.4f"|format(row.yield_rmse) }}</td>
+            <td>{{ "%.6f"|format(row.purity_r2) }}</td>
+            <td>{{ "%.4f"|format(row.purity_mae) }}</td>
+            <td>{{ "%.4f"|format(row.purity_rmse) }}</td>
+            <td>{{ "%.4f"|format(row.opt_match_score) }}</td>
+            <td style="color: {{ '#2ca02c' if row.constraint_safe else '#d62728' }}; font-weight: bold;">
+                {{ "SAFE" if row.constraint_safe else "UNSAFE" }}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h2>Charts</h2>
+<img src="data:image/png;base64,{{ r.chart }}" alt="Noise Sensitivity Charts"
+     style="width:100%; max-width:1100px; border-radius:8px;">
+
+<h2>How to Interpret</h2>
+<div class="check-box" style="border-left: 3px solid var(--accent);">
+    <ul>
+        <li><strong>σ = 0 (none)</strong> — the clean baseline. Perfect data means perfect
+            recovery; this is the upper bound on achievable accuracy.</li>
+        <li><strong>σ = 0.5 (medium)</strong> — matches the actual TCP server's noise level.
+            This row represents real-world expected performance.</li>
+        <li><strong>R² stays high</strong> even at σ = 1.0 because linear regression averages
+            out Gaussian noise effectively with 300 samples.</li>
+        <li><strong>MAE / RMSE grow</strong> with noise — the model's coefficient estimates
+            become noisier, so test-set predictions shift slightly.</li>
+        <li><strong>Optimization agreement drops</strong> at high noise because noisy
+            coefficients shift the LP solution. If the match score falls below 0.95,
+            the learned optimizer is drifting from the true optimum.</li>
+        <li><strong>Constraint safety</strong> can fail at extreme noise if the learned
+            purity coefficient is distorted enough that the LP finds a different
+            feasible vertex.</li>
+    </ul>
+</div>
+{% endblock %}

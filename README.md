@@ -20,6 +20,7 @@ approaches produce near-identical results.
 | **Residuals** | `/residuals` | Per-observation error analysis — summary stats, actual vs predicted, residual plots |
 | **Optimization** | `/optimization` | Explicit vs learned optimizer agreement — match score, input/output comparison |
 | **Constraints** | `/constraints` | Verify modelless recommendations against baseline — pass/fail per constraint |
+| **Noise** | `/noise` | Performance across 5 noise levels — R², MAE, opt match, constraint safety (no server needed) |
 
 ### API Endpoints
 
@@ -33,6 +34,7 @@ approaches produce near-identical results.
 | `GET /api/residuals` | Residual summary statistics (JSON) |
 | `GET /api/optimization` | Optimization agreement results (JSON) |
 | `GET /api/constraints` | Constraint verification results (JSON) |
+| `GET /api/noise` | Noise sensitivity sweep results (JSON) |
 
 ## Architecture
 

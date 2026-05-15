@@ -1096,3 +1096,175 @@ def run_constraint_analysis():
         "recommendation_safe": recommendation_safe,
         "chart": chart,
     }
+
+
+# ── Noise / process variation sensitivity ──────────────────────────────────
+
+NOISE_TRAIN = 300
+NOISE_TEST = 200
+NOISE_LEVELS = [
+    ("none",    0.0),
+    ("low",     0.25),
+    ("medium",  0.5),
+    ("high",    1.0),
+    ("extreme", 2.0),
+]
+
+
+def _generate_local(n, noise_std, rng):
+    """Generate n observations client-side with specified noise."""
+    inputs = np.column_stack([
+        rng.uniform(lo, hi, n) for lo, hi in INPUT_RANGES
+    ])
+    gt_y = inputs @ YIELD_W + YIELD_I
+    gt_p = inputs @ PURITY_W + PURITY_I
+    noisy_y = gt_y + rng.normal(0, noise_std, n) if noise_std > 0 else gt_y.copy()
+    noisy_p = gt_p + rng.normal(0, noise_std, n) if noise_std > 0 else gt_p.copy()
+    return inputs, np.column_stack([noisy_y, noisy_p]), np.column_stack([gt_y, gt_p])
+
+
+def run_noise_analysis():
+    """Sweep noise levels, train predictors, evaluate stability."""
+    from sklearn.metrics import mean_squared_error
+
+    t_start = time.time()
+    rng = np.random.default_rng(42)
+
+    # Fixed noise-free test set
+    test_in, _, gt_test = _generate_local(NOISE_TEST, 0.0, rng)
+
+    # Explicit optimum (reference)
+    c_exp = -YIELD_W
+    A_exp = [-PURITY_W]
+    b_exp = [-(88.0 - PURITY_I)]
+    r_exp = linprog(c_exp, A_ub=A_exp, b_ub=b_exp, bounds=INPUT_RANGES, method="highs")
+    exp_x = r_exp.x if r_exp.success else None
+
+    rows = []
+    for label, sigma in NOISE_LEVELS:
+        train_in, train_out, _ = _generate_local(NOISE_TRAIN, sigma, rng)
+
+        models = []
+        for i in range(2):
+            m = LinearRegression()
+            m.fit(train_in, train_out[:, i])
+            models.append(m)
+        preds = np.column_stack([m.predict(test_in) for m in models])
+
+        row = {"noise_label": label, "noise_std": sigma}
+        for i, name in enumerate(OUTPUT_NAMES):
+            row[f"{name}_mae"] = round(float(mean_absolute_error(gt_test[:, i], preds[:, i])), 6)
+            row[f"{name}_rmse"] = round(float(np.sqrt(mean_squared_error(gt_test[:, i], preds[:, i]))), 6)
+            row[f"{name}_r2"] = round(float(r2_score(gt_test[:, i], preds[:, i])), 6)
+
+        # Optimization agreement
+        yield_w = np.array(models[0].coef_)
+        purity_w = np.array(models[1].coef_)
+        purity_i = float(models[1].intercept_)
+        c_lrn = -yield_w
+        A_lrn = [-purity_w]
+        b_lrn = [-(88.0 - purity_i)]
+        r_lrn = linprog(c_lrn, A_ub=A_lrn, b_ub=b_lrn, bounds=INPUT_RANGES, method="highs")
+
+        if r_lrn.success and exp_x is not None:
+            ranges = [b[1] - b[0] for b in INPUT_RANGES]
+            norm_diffs = [abs(exp_x[j] - r_lrn.x[j]) / r for j, r in enumerate(ranges)]
+            row["opt_match_score"] = round(max(0.0, 1.0 - sum(norm_diffs) / len(norm_diffs)), 6)
+            gt_purity_at_rec = float(r_lrn.x @ PURITY_W + PURITY_I)
+            row["constraint_safe"] = gt_purity_at_rec >= 88.0
+        else:
+            row["opt_match_score"] = 0.0
+            row["constraint_safe"] = False
+
+        rows.append(row)
+
+    # Charts: 2×2 grid
+    fig, axes = plt.subplots(2, 2, figsize=(13, 10))
+    fig.suptitle("Noise / Process Variation Sensitivity", fontsize=13, fontweight="bold")
+    sigmas = [r["noise_std"] for r in rows]
+    labels_x = [r["noise_label"] for r in rows]
+
+    # R²
+    ax = axes[0, 0]
+    for name, color in [("yield", "#1f77b4"), ("purity", "#ff7f0e")]:
+        vals = [r[f"{name}_r2"] for r in rows]
+        ax.plot(range(len(sigmas)), vals, "o-", color=color, label=name.capitalize(), lw=2, ms=7)
+    ax.set_xticks(range(len(sigmas)))
+    ax.set_xticklabels(labels_x)
+    ax.set_ylabel("R²")
+    ax.set_title("R² vs Noise Level")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # MAE
+    ax = axes[0, 1]
+    for name, color in [("yield", "#1f77b4"), ("purity", "#ff7f0e")]:
+        vals = [r[f"{name}_mae"] for r in rows]
+        ax.plot(range(len(sigmas)), vals, "o-", color=color, label=name.capitalize(), lw=2, ms=7)
+    ax.set_xticks(range(len(sigmas)))
+    ax.set_xticklabels(labels_x)
+    ax.set_ylabel("MAE")
+    ax.set_title("MAE vs Noise Level")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # Match score
+    ax = axes[1, 0]
+    match_vals = [r["opt_match_score"] for r in rows]
+    colors_bar = ["#2ca02c" if v >= 0.95 else "#ff7f0e" if v >= 0.80 else "#d62728" for v in match_vals]
+    ax.bar(range(len(sigmas)), match_vals, color=colors_bar, alpha=0.8)
+    ax.set_xticks(range(len(sigmas)))
+    ax.set_xticklabels(labels_x)
+    ax.set_ylabel("Match Score")
+    ax.set_title("Optimization Agreement")
+    ax.set_ylim(0, 1.05)
+    ax.axhline(0.95, color="gray", ls="--", lw=1, alpha=0.5)
+    ax.grid(True, alpha=0.3, axis="y")
+
+    # Constraint safety
+    ax = axes[1, 1]
+    safe_vals = [1 if r["constraint_safe"] else 0 for r in rows]
+    bar_colors = ["#2ca02c" if s else "#d62728" for s in safe_vals]
+    ax.bar(range(len(sigmas)), safe_vals, color=bar_colors, alpha=0.8)
+    ax.set_xticks(range(len(sigmas)))
+    ax.set_xticklabels(labels_x)
+    ax.set_ylabel("Safe (1) / Unsafe (0)")
+    ax.set_title("Constraint Satisfaction")
+    ax.set_ylim(-0.1, 1.3)
+    ax.grid(True, alpha=0.3, axis="y")
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    chart = _fig_to_base64(fig)
+
+    duration = time.time() - t_start
+    write_manifest(
+        OUTPUT_DIR,
+        analysis_type="noise_sensitivity",
+        data_type="synthetic_variable_noise",
+        explicit_model_source="known coefficients (client-side)",
+        explicit_model_version="1.0.0",
+        modelless_model_type="LinearRegression",
+        sample_size={"train": NOISE_TRAIN, "test": NOISE_TEST},
+        train_test_split={"train": NOISE_TRAIN, "test": NOISE_TEST},
+        random_seed=42,
+        noise_level={label: sigma for label, sigma in NOISE_LEVELS},
+        constraints_used={"min_purity": 88.0},
+        metrics={r["noise_label"]: {k: v for k, v in r.items()
+                 if k not in ("noise_label",)} for r in rows},
+        all_checks_pass=all(r["constraint_safe"] for r in rows),
+        plot_files=["(base64 embedded)"],
+        metric_files=[],
+        prediction_files=[],
+        residual_files=[],
+        optimization_files=[],
+        duration_seconds=round(duration, 2),
+    )
+
+    return {
+        "n_train": NOISE_TRAIN,
+        "n_test": NOISE_TEST,
+        "noise_levels": NOISE_LEVELS,
+        "rows": rows,
+        "chart": chart,
+        "all_safe": all(r["constraint_safe"] for r in rows),
+    }
