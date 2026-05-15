@@ -652,3 +652,135 @@ def run_sensitivity_analysis():
         "chart": chart,
         "thresholds": thresholds,
     }
+
+
+# ── Residual / error analysis ─────────────────────────────────────────────
+
+RESIDUAL_TRAIN = 300
+RESIDUAL_TEST = 200
+
+
+def run_residual_analysis():
+    """Full residual analysis: per-observation errors, summary stats, plots."""
+    from sklearn.metrics import mean_squared_error
+
+    t_start = time.time()
+    np.random.seed(42)
+
+    train_in, train_out = collect_observations(RESIDUAL_TRAIN)
+    test_in, test_out = collect_observations(RESIDUAL_TEST)
+    gt_test = ground_truth(test_in)
+
+    # Train predictor
+    models = []
+    for i in range(2):
+        m = LinearRegression()
+        m.fit(train_in, train_out[:, i])
+        models.append(m)
+    preds = np.column_stack([m.predict(test_in) for m in models])
+
+    # Residuals against noise-free ground truth
+    residuals = gt_test - preds
+
+    # Per-observation rows (for the table)
+    obs_rows = []
+    for j in range(len(test_in)):
+        row = {"obs": j}
+        for k, name in enumerate(INPUT_NAMES):
+            row[f"input_{name}"] = round(float(test_in[j, k]), 4)
+        for k, name in enumerate(OUTPUT_NAMES):
+            row[f"actual_{name}"] = round(float(gt_test[j, k]), 4)
+            row[f"predicted_{name}"] = round(float(preds[j, k]), 4)
+            row[f"residual_{name}"] = round(float(residuals[j, k]), 4)
+        obs_rows.append(row)
+
+    # Summary statistics
+    summary = {}
+    for k, name in enumerate(OUTPUT_NAMES):
+        r = residuals[:, k]
+        abs_r = np.abs(r)
+        summary[name] = {
+            "mean_residual": round(float(r.mean()), 6),
+            "mean_abs_residual": round(float(abs_r.mean()), 6),
+            "max_abs_residual": round(float(abs_r.max()), 6),
+            "p50_abs_error": round(float(np.percentile(abs_r, 50)), 6),
+            "p90_abs_error": round(float(np.percentile(abs_r, 90)), 6),
+            "p95_abs_error": round(float(np.percentile(abs_r, 95)), 6),
+            "rmse": round(float(np.sqrt(mean_squared_error(gt_test[:, k], preds[:, k]))), 6),
+            "r2": round(float(r2_score(gt_test[:, k], preds[:, k])), 6),
+        }
+
+    # ── Charts (3 × 2 grid) ─────────────────────────────────────────────
+    fig, axes = plt.subplots(3, 2, figsize=(12, 14))
+    fig.suptitle("Residual / Error Analysis", fontsize=13, fontweight="bold")
+
+    colors = {"yield": "#1f77b4", "purity": "#ff7f0e"}
+    for col, name in enumerate(OUTPUT_NAMES):
+        k = col
+        c = colors[name]
+        r = residuals[:, k]
+
+        # Row 0: Actual vs Predicted
+        ax = axes[0, col]
+        ax.scatter(gt_test[:, k], preds[:, k], s=12, alpha=0.5, c=c)
+        lo, hi = gt_test[:, k].min(), gt_test[:, k].max()
+        ax.plot([lo, hi], [lo, hi], "r--", lw=1)
+        ax.set_xlabel(f"Actual {name.capitalize()}")
+        ax.set_ylabel(f"Predicted {name.capitalize()}")
+        ax.set_title(f"{name.capitalize()}: Actual vs Predicted (R²={summary[name]['r2']:.6f})")
+
+        # Row 1: Residual vs Predicted
+        ax = axes[1, col]
+        ax.scatter(preds[:, k], r, s=12, alpha=0.5, c=c)
+        ax.axhline(0, color="red", ls="--", lw=1)
+        ax.set_xlabel(f"Predicted {name.capitalize()}")
+        ax.set_ylabel("Residual (actual − predicted)")
+        ax.set_title(f"{name.capitalize()}: Residual vs Predicted")
+
+    # Row 2: Residual vs each input variable (combined in 2 subplots)
+    for col, name in enumerate(OUTPUT_NAMES):
+        ax = axes[2, col]
+        k = col
+        r = residuals[:, k]
+        for i_idx, i_name in enumerate(INPUT_NAMES):
+            ax.scatter(test_in[:, i_idx], r, s=8, alpha=0.35,
+                       label=i_name.replace("_", " ").title())
+        ax.axhline(0, color="red", ls="--", lw=1)
+        ax.set_xlabel("Input Variable Value")
+        ax.set_ylabel("Residual")
+        ax.set_title(f"{name.capitalize()} Residual vs Inputs")
+        ax.legend(fontsize=7, loc="upper right")
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    chart = _fig_to_base64(fig)
+
+    duration = time.time() - t_start
+    write_manifest(
+        OUTPUT_DIR,
+        analysis_type="residual_analysis",
+        data_type="synthetic",
+        explicit_model_source="TCP server (127.0.0.1:9100)",
+        explicit_model_version="1.0.0",
+        modelless_model_type="LinearRegression",
+        sample_size={"train": RESIDUAL_TRAIN, "test": RESIDUAL_TEST},
+        train_test_split={"train": RESIDUAL_TRAIN, "test": RESIDUAL_TEST},
+        random_seed=42,
+        noise_level=NOISE_STD,
+        constraints_used=None,
+        metrics=summary,
+        all_checks_pass=None,
+        plot_files=["(base64 embedded)"],
+        metric_files=[],
+        prediction_files=[],
+        residual_files=["(base64 embedded)"],
+        optimization_files=[],
+        duration_seconds=round(duration, 2),
+    )
+
+    return {
+        "n_train": RESIDUAL_TRAIN,
+        "n_test": RESIDUAL_TEST,
+        "summary": summary,
+        "obs_rows": obs_rows,
+        "chart": chart,
+    }

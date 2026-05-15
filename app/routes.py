@@ -49,6 +49,15 @@ def sensitivity():
     return render_template("sensitivity.html", r=results)
 
 
+@bp.route("/residuals")
+def residuals():
+    if not analysis.server_is_available():
+        return render_template("error.html",
+                               message="TCP server is not running. Start explicit-model on port 9100.")
+    results = analysis.run_residual_analysis()
+    return render_template("residuals.html", r=results)
+
+
 # ── JSON API endpoints ─────────────────────────────────────────────────────
 
 @bp.route("/api/status")
@@ -89,4 +98,14 @@ def api_sensitivity():
         return jsonify({"error": "TCP server not available"}), 503
     results = analysis.run_sensitivity_analysis()
     results.pop("chart", None)
+    return jsonify(results)
+
+
+@bp.route("/api/residuals")
+def api_residuals():
+    if not analysis.server_is_available():
+        return jsonify({"error": "TCP server not available"}), 503
+    results = analysis.run_residual_analysis()
+    results.pop("chart", None)
+    results.pop("obs_rows", None)  # large; use CSV endpoint if needed
     return jsonify(results)

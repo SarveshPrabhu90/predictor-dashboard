@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Residual Analysis — Predictor Dashboard{% endblock %}
+
+{% block content %}
+<h1>Residual / Error Analysis</h1>
+<p style="color: var(--text-muted);">
+    Trained on {{ r.n_train }} observations, evaluated on {{ r.n_test }} test
+    samples against noise-free ground truth.  Residual = actual &minus; predicted.
+</p>
+
+<h2>Summary Statistics</h2>
+<table>
+    <thead>
+        <tr>
+            <th>Output</th>
+            <th>Mean Residual</th>
+            <th>Mean |Residual|</th>
+            <th>Max |Residual|</th>
+            <th>P50 |Error|</th>
+            <th>P90 |Error|</th>
+            <th>P95 |Error|</th>
+            <th>RMSE</th>
+            <th>R²</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for name in ["yield", "purity"] %}
+        {% set s = r.summary[name] %}
+        <tr>
+            <td><strong>{{ name|capitalize }}</strong></td>
+            <td>{{ "%+.6f"|format(s.mean_residual) }}</td>
+            <td>{{ "%.6f"|format(s.mean_abs_residual) }}</td>
+            <td>{{ "%.6f"|format(s.max_abs_residual) }}</td>
+            <td>{{ "%.6f"|format(s.p50_abs_error) }}</td>
+            <td>{{ "%.6f"|format(s.p90_abs_error) }}</td>
+            <td>{{ "%.6f"|format(s.p95_abs_error) }}</td>
+            <td>{{ "%.6f"|format(s.rmse) }}</td>
+            <td>{{ "%.6f"|format(s.r2) }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h2>Diagnostic Plots</h2>
+<p style="color: var(--text-muted); font-size: 0.9rem;">
+    Row 1: Actual vs Predicted — points should hug the diagonal.<br>
+    Row 2: Residual vs Predicted — look for patterns (should be random scatter around zero).<br>
+    Row 3: Residual vs Input Variables — systematic trends indicate the model misses a relationship.
+</p>
+<img src="data:image/png;base64,{{ r.chart }}" alt="Residual Charts"
+     style="width:100%; max-width:1000px; border-radius:8px;">
+
+<h2>Per-Observation Data (first 20 rows)</h2>
+<div style="overflow-x: auto;">
+<table style="font-size: 0.85rem;">
+    <thead>
+        <tr>
+            <th>#</th>
+            {% for name in ["temperature", "flow_rate", "concentration"] %}
+            <th>{{ name }}</th>
+            {% endfor %}
+            {% for name in ["yield", "purity"] %}
+            <th>actual_{{ name }}</th>
+            <th>pred_{{ name }}</th>
+            <th>resid_{{ name }}</th>
+            {% endfor %}
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in r.obs_rows[:20] %}
+        <tr>
+            <td>{{ row.obs }}</td>
+            <td>{{ "%.4f"|format(row.input_temperature) }}</td>
+            <td>{{ "%.4f"|format(row.input_flow_rate) }}</td>
+            <td>{{ "%.4f"|format(row.input_concentration) }}</td>
+            <td>{{ "%.4f"|format(row.actual_yield) }}</td>
+            <td>{{ "%.4f"|format(row.predicted_yield) }}</td>
+            <td>{{ "%+.4f"|format(row.residual_yield) }}</td>
+            <td>{{ "%.4f"|format(row.actual_purity) }}</td>
+            <td>{{ "%.4f"|format(row.predicted_purity) }}</td>
+            <td>{{ "%+.4f"|format(row.residual_purity) }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+{% if r.obs_rows|length > 20 %}
+<p style="color: var(--text-muted); font-size: 0.85rem;">
+    Showing 20 of {{ r.obs_rows|length }} observations.
+    Use <code>/api/residuals</code> for full summary or the standalone script for CSV export.
+</p>
+{% endif %}
+
+<h2>How to Interpret</h2>
+<div class="check-box" style="border-left: 3px solid var(--accent);">
+    <ul>
+        <li><strong>Mean residual ≈ 0</strong> means the predictor is unbiased — it doesn't
+            systematically over- or under-predict.</li>
+        <li><strong>P90 / P95</strong> — 90% / 95% of predictions have an absolute error
+            below this value. Useful for worst-case guarantees.</li>
+        <li><strong>Residual vs Predicted</strong> — random scatter is ideal. A funnel shape
+            means error grows with magnitude (heteroscedasticity). A curve means the
+            linear model is missing a nonlinear term.</li>
+        <li><strong>Residual vs Input</strong> — trends mean the model under-fits that
+            input's contribution. For a truly linear system, these should be flat.</li>
+    </ul>
+</div>
+{% endblock %}
