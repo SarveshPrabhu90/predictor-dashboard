@@ -8,7 +8,9 @@ predictor training / evaluation pipeline.
 import base64
 import io
 import json
+import os
 import socket
+import time
 
 import matplotlib
 matplotlib.use("Agg")
@@ -17,6 +19,10 @@ import numpy as np
 from scipy.optimize import linprog
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, r2_score
+
+from .manifest import write_manifest
+
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "output")
 
 # ── Ground-truth coefficients (for validation only) ────────────────────────
 YIELD_W = np.array([0.45, 0.30, 0.80])
@@ -78,6 +84,7 @@ def _fig_to_base64(fig) -> str:
 
 def run_explicit_analysis(n: int = 500):
     """Run full explicit model validation. Returns a dict of results."""
+    t_start = time.time()
     inputs, noisy_outputs = collect_observations(n)
     gt_outputs = ground_truth(inputs)
     residuals = noisy_outputs - gt_outputs
@@ -176,6 +183,30 @@ def run_explicit_analysis(n: int = 500):
         ("Purity R² ≥ 0.95", stats["purity"]["r2"] >= 0.95),
     ]
 
+    all_pass = all(ok for _, ok in checks)
+    duration = time.time() - t_start
+    write_manifest(
+        OUTPUT_DIR,
+        analysis_type="explicit",
+        data_type="synthetic",
+        explicit_model_source="TCP server (127.0.0.1:9100)",
+        explicit_model_version="1.0.0",
+        modelless_model_type=None,
+        sample_size=n,
+        train_test_split=None,
+        random_seed=None,
+        noise_level=NOISE_STD,
+        constraints_used={"min_purity": 88.0},
+        metrics=stats,
+        all_checks_pass=all_pass,
+        plot_files=["(base64 embedded)"],
+        metric_files=[],
+        prediction_files=[],
+        residual_files=[],
+        optimization_files=[],
+        duration_seconds=round(duration, 2),
+    )
+
     return {
         "n_samples": n,
         "stats": stats,
@@ -183,7 +214,7 @@ def run_explicit_analysis(n: int = 500):
         "output_stats": output_stats,
         "chart": chart,
         "checks": checks,
-        "all_pass": all(ok for _, ok in checks),
+        "all_pass": all_pass,
     }
 
 
@@ -191,6 +222,7 @@ def run_explicit_analysis(n: int = 500):
 
 def run_predictor_analysis(n_train: int = 300, n_test: int = 100):
     """Train the modelless predictor and evaluate it. Returns a dict of results."""
+    t_start = time.time()
     np.random.seed(42)
 
     train_in, train_out = collect_observations(n_train)
@@ -342,6 +374,37 @@ def run_predictor_analysis(n_train: int = 300, n_test: int = 100):
         ("Optimizer yield error < 0.5%", opt_result is not None and opt_result["yield_error"] < 0.5),
     ]
 
+    all_pass = all(ok for _, ok in checks)
+    duration = time.time() - t_start
+    write_manifest(
+        OUTPUT_DIR,
+        analysis_type="predictor",
+        data_type="synthetic",
+        explicit_model_source="TCP server (127.0.0.1:9100)",
+        explicit_model_version="1.0.0",
+        modelless_model_type="LinearRegression",
+        sample_size={"train": n_train, "test": n_test},
+        train_test_split={"train": n_train, "test": n_test},
+        random_seed=42,
+        noise_level=NOISE_STD,
+        constraints_used={"min_purity": 88.0},
+        metrics={
+            "yield_r2_vs_truth": gt_metrics["yield"]["r2"],
+            "purity_r2_vs_truth": gt_metrics["purity"]["r2"],
+            "yield_mae_vs_truth": gt_metrics["yield"]["mae"],
+            "purity_mae_vs_truth": gt_metrics["purity"]["mae"],
+        },
+        learned_coefficients=learned_coeffs,
+        optimization=opt_result,
+        all_checks_pass=all_pass,
+        plot_files=["(base64 embedded)"],
+        metric_files=[],
+        prediction_files=[],
+        residual_files=[],
+        optimization_files=[],
+        duration_seconds=round(duration, 2),
+    )
+
     return {
         "n_train": n_train,
         "n_test": n_test,
@@ -354,7 +417,7 @@ def run_predictor_analysis(n_train: int = 300, n_test: int = 100):
         "optimization": opt_result,
         "chart": chart,
         "checks": checks,
-        "all_pass": all(ok for _, ok in checks),
+        "all_pass": all_pass,
     }
 
 
@@ -362,6 +425,7 @@ def run_predictor_analysis(n_train: int = 300, n_test: int = 100):
 
 def run_comparison_analysis(n_train: int = 300, n_test: int = 100):
     """Run both analyses and produce a comparison. Returns a dict."""
+    t_start = time.time()
     np.random.seed(42)
 
     train_in, train_out = collect_observations(n_train)
@@ -453,10 +517,138 @@ def run_comparison_analysis(n_train: int = 300, n_test: int = 100):
     plt.tight_layout(rect=[0, 0, 1, 0.93])
     chart = _fig_to_base64(fig)
 
+    duration = time.time() - t_start
+    write_manifest(
+        OUTPUT_DIR,
+        analysis_type="comparison",
+        data_type="synthetic",
+        explicit_model_source="TCP server (127.0.0.1:9100)",
+        explicit_model_version="1.0.0",
+        modelless_model_type="LinearRegression",
+        sample_size={"train": n_train, "test": n_test},
+        train_test_split={"train": n_train, "test": n_test},
+        random_seed=42,
+        noise_level=NOISE_STD,
+        constraints_used={"min_purity": 88.0},
+        metrics=comparison,
+        optimization=opt_comparison,
+        all_checks_pass=None,
+        plot_files=["(base64 embedded)"],
+        metric_files=[],
+        prediction_files=[],
+        residual_files=[],
+        optimization_files=[],
+        duration_seconds=round(duration, 2),
+    )
+
     return {
         "n_train": n_train,
         "n_test": n_test,
         "comparison": comparison,
         "optimization": opt_comparison,
         "chart": chart,
+    }
+
+
+# ── Sample-size sensitivity ───────────────────────────────────────────────
+
+SENSITIVITY_SIZES = [5, 10, 25, 50, 100, 200]
+SENSITIVITY_TEST = 100
+
+
+def run_sensitivity_analysis():
+    """Sweep over sample sizes and measure prediction accuracy. Returns a dict."""
+    from sklearn.metrics import mean_squared_error
+
+    t_start = time.time()
+    np.random.seed(42)
+
+    max_train = max(SENSITIVITY_SIZES)
+    pool_in, pool_out = collect_observations(max_train)
+    test_in, test_out = collect_observations(SENSITIVITY_TEST)
+    gt_test = ground_truth(test_in)
+
+    rows = []
+    for n in SENSITIVITY_SIZES:
+        train_in = pool_in[:n]
+        train_out = pool_out[:n]
+
+        models = []
+        for i in range(2):
+            m = LinearRegression()
+            m.fit(train_in, train_out[:, i])
+            models.append(m)
+        preds = np.column_stack([m.predict(test_in) for m in models])
+
+        row = {"sample_size": n}
+        for i, name in enumerate(OUTPUT_NAMES):
+            row[f"{name}_mae"] = float(mean_absolute_error(gt_test[:, i], preds[:, i]))
+            row[f"{name}_rmse"] = float(np.sqrt(mean_squared_error(gt_test[:, i], preds[:, i])))
+            row[f"{name}_r2"] = float(r2_score(gt_test[:, i], preds[:, i]))
+        rows.append(row)
+
+    # Build chart
+    sizes = [r["sample_size"] for r in rows]
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    fig.suptitle("Sample-Size Sensitivity", fontsize=13, fontweight="bold")
+
+    for ax, metric, label in zip(
+        axes,
+        ["r2", "mae", "rmse"],
+        ["R² (higher is better)", "MAE (lower is better)", "RMSE (lower is better)"],
+    ):
+        for name, color in [("yield", "#1f77b4"), ("purity", "#ff7f0e")]:
+            vals = [r[f"{name}_{metric}"] for r in rows]
+            ax.plot(sizes, vals, "o-", color=color, label=name.capitalize(), linewidth=2, markersize=6)
+        ax.set_xlabel("Training Samples")
+        ax.set_ylabel(metric.upper())
+        ax.set_title(label)
+        ax.legend()
+        ax.set_xscale("log")
+        ax.set_xticks(sizes)
+        ax.set_xticklabels([str(s) for s in sizes])
+        ax.grid(True, alpha=0.3)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.93])
+    chart = _fig_to_base64(fig)
+
+    # Determine where the model becomes "useful" (R² ≥ 0.99)
+    thresholds = {}
+    for name in OUTPUT_NAMES:
+        for r in rows:
+            if r[f"{name}_r2"] >= 0.99:
+                thresholds[name] = r["sample_size"]
+                break
+        else:
+            thresholds[name] = None
+
+    duration = time.time() - t_start
+    write_manifest(
+        OUTPUT_DIR,
+        analysis_type="sample_size_sensitivity",
+        data_type="synthetic",
+        explicit_model_source="TCP server (127.0.0.1:9100)",
+        explicit_model_version="1.0.0",
+        modelless_model_type="LinearRegression",
+        sample_size={"pool": max_train, "test": SENSITIVITY_TEST},
+        train_test_split={"sample_sizes": SENSITIVITY_SIZES, "test": SENSITIVITY_TEST},
+        random_seed=42,
+        noise_level=NOISE_STD,
+        constraints_used=None,
+        metrics={str(r["sample_size"]): {k: v for k, v in r.items() if k != "sample_size"} for r in rows},
+        all_checks_pass=None,
+        plot_files=["(base64 embedded)"],
+        metric_files=[],
+        prediction_files=[],
+        residual_files=[],
+        optimization_files=[],
+        duration_seconds=round(duration, 2),
+    )
+
+    return {
+        "sample_sizes": SENSITIVITY_SIZES,
+        "test_size": SENSITIVITY_TEST,
+        "rows": rows,
+        "chart": chart,
+        "thresholds": thresholds,
     }

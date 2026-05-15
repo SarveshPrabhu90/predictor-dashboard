@@ -40,6 +40,15 @@ def comparison():
     return render_template("comparison.html", r=results)
 
 
+@bp.route("/sensitivity")
+def sensitivity():
+    if not analysis.server_is_available():
+        return render_template("error.html",
+                               message="TCP server is not running. Start explicit-model on port 9100.")
+    results = analysis.run_sensitivity_analysis()
+    return render_template("sensitivity.html", r=results)
+
+
 # ── JSON API endpoints ─────────────────────────────────────────────────────
 
 @bp.route("/api/status")
@@ -70,5 +79,14 @@ def api_comparison():
     if not analysis.server_is_available():
         return jsonify({"error": "TCP server not available"}), 503
     results = analysis.run_comparison_analysis(300, 100)
+    results.pop("chart", None)
+    return jsonify(results)
+
+
+@bp.route("/api/sensitivity")
+def api_sensitivity():
+    if not analysis.server_is_available():
+        return jsonify({"error": "TCP server not available"}), 503
+    results = analysis.run_sensitivity_analysis()
     results.pop("chart", None)
     return jsonify(results)

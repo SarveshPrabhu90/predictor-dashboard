@@ -66,6 +66,12 @@
         </a>
     </div>
     <div class="feature-card">
+        <a href="{{ url_for('main.sensitivity') }}">
+            <h3>📊 Sensitivity</h3>
+            <p>How many observations does the predictor need? R², MAE, RMSE by sample size.</p>
+        </a>
+    </div>
+    <div class="feature-card">
         <a href="{{ url_for('main.api_status') }}">
             <h3>📡 API</h3>
             <p>JSON endpoints for programmatic access: /api/status, /api/explicit, /api/predictor, /api/comparison</p>

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Sample-Size Sensitivity — Predictor Dashboard{% endblock %}
+
+{% block content %}
+<h1>Sample-Size Sensitivity</h1>
+<p style="color: var(--text-muted);">
+    How many observations does the modelless predictor need before it becomes useful?
+    Trained on subsets of {{ r.sample_sizes|length }} sizes, evaluated on a fixed
+    hold-out set of {{ r.test_size }} samples against noise-free ground truth.
+</p>
+
+<div class="card-grid">
+    {% for name in ["yield", "purity"] %}
+    <div class="stat-card">
+        <div class="value">
+            {% if r.thresholds[name] %}
+                {{ r.thresholds[name] }}
+            {% else %}
+                &gt;{{ r.sample_sizes[-1] }}
+            {% endif %}
+        </div>
+        <div class="label">{{ name|capitalize }} R² ≥ 0.99 at n=</div>
+    </div>
+    {% endfor %}
+</div>
+
+<h2>Metrics by Sample Size</h2>
+<table>
+    <thead>
+        <tr>
+            <th rowspan="2">n</th>
+            <th colspan="3">Yield</th>
+            <th colspan="3">Purity</th>
+        </tr>
+        <tr>
+            <th>R²</th><th>MAE</th><th>RMSE</th>
+            <th>R²</th><th>MAE</th><th>RMSE</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in r.rows %}
+        <tr>
+            <td><strong>{{ row.sample_size }}</strong></td>
+            <td>{{ "%.6f"|format(row.yield_r2) }}</td>
+            <td>{{ "%.4f"|format(row.yield_mae) }}</td>
+            <td>{{ "%.4f"|format(row.yield_rmse) }}</td>
+            <td>{{ "%.6f"|format(row.purity_r2) }}</td>
+            <td>{{ "%.4f"|format(row.purity_mae) }}</td>
+            <td>{{ "%.4f"|format(row.purity_rmse) }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h2>Trend Charts</h2>
+<img src="data:image/png;base64,{{ r.chart }}" alt="Sensitivity Charts"
+     style="width:100%; max-width:1100px; border-radius:8px;">
+
+<h2>How to Interpret</h2>
+<div class="check-box" style="border-left: 3px solid var(--accent);">
+    <ul>
+        <li><strong>R² → 1.0</strong> means the model explains nearly all variance in the
+            ground truth. For a linear system with Gaussian noise, even small samples
+            should reach high R² quickly.</li>
+        <li><strong>MAE / RMSE decrease</strong> as sample size grows — the model averages
+            out observation noise with more data.</li>
+        <li><strong>Diminishing returns</strong> — beyond a certain n, adding more samples
+            barely improves accuracy. That's the practical minimum sample size.</li>
+        <li><strong>Yield vs Purity</strong> may converge at different rates depending on
+            coefficient magnitudes and noise-to-signal ratio.</li>
+    </ul>
+</div>
+{% endblock %}

@@ -16,6 +16,7 @@ approaches produce near-identical results.
 | **Explicit Model** | `/explicit` | 500-sample validation — input/output distributions, noise analysis (σ ≈ 0.5), R² checks |
 | **Modelless Predictor** | `/predictor` | Coefficient recovery, test-set R² > 0.999, LP optimization (max yield, purity ≥ 88%) |
 | **Comparison** | `/comparison` | Side-by-side predictions & optimization — yield difference typically < 0.2% |
+| **Sensitivity** | `/sensitivity` | Sample-size sweep — R², MAE, RMSE at n = 5, 10, 25, 50, 100, 200 |
 
 ### API Endpoints
 
@@ -25,6 +26,7 @@ approaches produce near-identical results.
 | `GET /api/explicit` | Full explicit-model validation results (JSON) |
 | `GET /api/predictor` | Modelless predictor training & evaluation results (JSON) |
 | `GET /api/comparison` | Side-by-side comparison results (JSON) |
+| `GET /api/sensitivity` | Sample-size sensitivity sweep results (JSON) |
 
 ## Architecture
 
@@ -119,6 +121,14 @@ predictor-dashboard/
     ├── test_analysis.py         # Unit tests for analysis module
     └── test_routes.py           # Route tests with mocked analysis
 ```
+
+## Run Manifest
+
+Each analysis run (explicit, predictor, comparison) saves a `run_manifest.json`
+to the `output/` folder. The manifest records run metadata (timestamp, analysis
+type, sample sizes, metrics, checks passed, duration). Manifests are written
+automatically when dashboards are loaded or API endpoints are called. See
+`docs/SHARED_OUTPUT_CONTRACT.md` in the workspace root for the full schema.
 
 ## Related Repositories
 
