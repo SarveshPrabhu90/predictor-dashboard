@@ -13,6 +13,7 @@ approaches produce near-identical results.
 | Page | Route | Description |
 |------|-------|-------------|
 | **Home** | `/` | Architecture overview, live server status, feature cards, links to related repos |
+| **POV Summary** | `/pov` | Unified evaluation story — accuracy, sensitivity, residuals, optimization, constraints, noise, gate verdicts |
 | **Explicit Model** | `/explicit` | 500-sample validation — input/output distributions, noise analysis (σ ≈ 0.5), R² checks |
 | **Modelless Predictor** | `/predictor` | Coefficient recovery, test-set R² > 0.999, LP optimization (max yield, purity ≥ 88%) |
 | **Comparison** | `/comparison` | Side-by-side predictions & optimization — yield difference typically < 0.2% |
@@ -35,6 +36,7 @@ approaches produce near-identical results.
 | `GET /api/optimization` | Optimization agreement results (JSON) |
 | `GET /api/constraints` | Constraint verification results (JSON) |
 | `GET /api/noise` | Noise sensitivity sweep results (JSON) |
+| `GET /api/pov` | Full POV summary with all gate verdicts (JSON) |
 
 ## Architecture
 

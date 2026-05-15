@@ -8,6 +8,23 @@
     model by observing system behavior over TCP/IP.
 </p>
 
+<div class="card" style="margin-top: 1.5rem; border-left: 4px solid var(--accent);">
+    <h2 style="margin-top:0;">📋 POV Summary</h2>
+    <p>One page with the full evaluation story — accuracy, sample efficiency,
+       residuals, optimization, constraints, noise robustness, and gate verdicts.</p>
+    {% if server_up %}
+    <a href="{{ url_for('main.pov') }}"
+       style="display:inline-block; padding:0.6rem 1.5rem; background:var(--accent);
+              color:#000; border-radius:6px; font-weight:bold; text-decoration:none;">
+        Run POV Summary
+    </a>
+    {% else %}
+    <p style="color:var(--text-muted); font-size:0.9rem;">
+        Start the TCP server to run the summary.
+    </p>
+    {% endif %}
+</div>
+
 <div class="card" style="margin-top: 1.5rem;">
     <h2 style="margin-top:0;">Server Status</h2>
     <p>

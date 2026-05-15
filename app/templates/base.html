@@ -9,9 +9,10 @@
 <body>
     <nav>
         <a href="{{ url_for('main.home') }}" class="brand">⚗️ Predictor Dashboard</a>
+        <a href="{{ url_for('main.pov') }}" style="font-weight:bold;">POV Summary</a>
         <a href="{{ url_for('main.home') }}">Home</a>
-        <a href="{{ url_for('main.explicit') }}">Explicit Model</a>
-        <a href="{{ url_for('main.predictor') }}">Modelless Predictor</a>
+        <a href="{{ url_for('main.explicit') }}">Explicit</a>
+        <a href="{{ url_for('main.predictor') }}">Predictor</a>
         <a href="{{ url_for('main.comparison') }}">Comparison</a>
         <a href="{{ url_for('main.sensitivity') }}">Sensitivity</a>
         <a href="{{ url_for('main.residuals') }}">Residuals</a>

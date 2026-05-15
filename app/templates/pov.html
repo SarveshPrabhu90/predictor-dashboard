@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block title %}Proof-of-Value Summary — Predictor Dashboard{% endblock %}
+
+{% block content %}
+
+{# ── Overall verdict banner ─────────────────────────────────────────────── #}
+{% set verdict_color = "#2ca02c" if r.overall == "pass" else "#d62728" if r.overall == "fail" else "#ff7f0e" %}
+<div style="text-align:center; padding:1.2rem; margin-bottom:1.5rem;
+            border:2px solid {{ verdict_color }}; border-radius:8px;
+            background:rgba({{ '40,160,44' if r.overall == 'pass' else '214,39,40' if r.overall == 'fail' else '255,127,14' }},0.08);">
+    <div style="font-size:2rem; font-weight:bold; color:{{ verdict_color }};">
+        POV Gate: {{ r.overall|upper }}
+    </div>
+    <div style="color:var(--text-muted); font-size:0.9rem;">
+        {{ r.gates|selectattr('status','eq','pass')|list|length }} of {{ r.gates|length }} gates passed
+        &nbsp;·&nbsp; completed in {{ r.duration }}s
+    </div>
+</div>
+
+{# ════════════════════════════════════════════════════════════════════════ #}
+{# 1. Run Summary                                                         #}
+{# ════════════════════════════════════════════════════════════════════════ #}
+<h2>1. Run Summary</h2>
+<table>
+    <tbody>
+        {% for key, val in r.run_summary.items() %}
+        <tr>
+            <td style="width:30%;"><strong>{{ key.replace("_"," ").title() }}</strong></td>
+            <td>{{ val }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{# ════════════════════════════════════════════════════════════════════════ #}
+{# 2. Prediction Accuracy                                                 #}
+{# ════════════════════════════════════════════════════════════════════════ #}
+<h2>2. Prediction Accuracy</h2>
+<p style="color:var(--text-muted);">
+    Modelless predictor evaluated on {{ r.run_summary.train_test_split }} against
+    noise-free ground truth.
+</p>
+<table>
+    <thead>
+        <tr><th>Output</th><th>R²</th><th>MAE</th><th>RMSE</th></tr>
+    </thead>
+    <tbody>
+        {% for name in ["yield","purity"] %}
+        {% set a = r.accuracy[name] %}
+        <tr>
+            <td><strong>{{ name|capitalize }}</strong></td>
+            <td>{{ "%.6f"|format(a.r2) }}</td>
+            <td>{{ "%.4f"|format(a.mae) }}</td>
+            <td>{{ "%.4f"|format(a.rmse) }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+<img src="data:image/png;base64,{{ r.chart_accuracy }}" alt="Accuracy"
+     style="width:100%; max-width:800px; border-radius:8px; margin-top:0.5rem;">
+
+{# ════════════════════════════════════════════════════════════════════════ #}
+{# 3. Sample-Size Sensitivity                                             #}
+{# ════════════════════════════════════════════════════════════════════════ #}
+<h2>3. Sample-Size Sensitivity</h2>
+<p style="color:var(--text-muted);">
+    R² ≥ 0.99 threshold:
+    {% for name in ["yield","purity"] %}
+        {{ name }} at n={{ r.sens_thresholds[name] or ">200" }}{{ ", " if not loop.last }}
+    {% endfor %}
+</p>
+<table>
+    <thead>
+        <tr>
+            <th>n</th>
+            <th>Yield R²</th><th>Yield MAE</th>
+            <th>Purity R²</th><th>Purity MAE</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in r.sensitivity_rows %}
+        <tr>
+            <td><strong>{{ row.n }}</strong></td>
+            <td>{{ "%.6f"|format(row.yield_r2) }}</td>
+            <td>{{ "%.4f"|format(row.yield_mae) }}</td>
+            <td>{{ "%.6f"|format(row.purity_r2) }}</td>
+            <td>{{ "%.4f"|format(row.purity_mae) }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+<img src="data:image/png;base64,{{ r.chart_sensitivity }}" alt="Sensitivity"
+     style="width:100%; max-width:500px; border-radius:8px; margin-top:0.5rem;">
+
+{# ════════════════════════════════════════════════════════════════════════ #}
+{# 4. Residual / Error Analysis                                           #}
+{# ════════════════════════════════════════════════════════════════════════ #}
+<h2>4. Residual / Error Analysis</h2>
+<p style="color:var(--text-muted);">
+    Where the modelless predictor is wrong — residual = actual − predicted.
+</p>
+<table>
+    <thead>
+        <tr><th>Output</th><th>Mean</th><th>Mean |r|</th><th>Max |r|</th>
+            <th>P50</th><th>P90</th><th>P95</th></tr>
+    </thead>
+    <tbody>
+        {% for name in ["yield","purity"] %}
+        {% set s = r.residual_summary[name] %}
+        <tr>
+            <td><strong>{{ name|capitalize }}</strong></td>
+            <td>{{ "%+.6f"|format(s.mean) }}</td>
+            <td>{{ "%.6f"|format(s.mean_abs) }}</td>
+            <td>{{ "%.6f"|format(s.max_abs) }}</td>
+            <td>{{ "%.6f"|format(s.p50) }}</td>
+            <td>{{ "%.6f"|format(s.p90) }}</td>
+            <td>{{ "%.6f"|format(s.p95) }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+<img src="data:image/png;base64,{{ r.chart_residuals }}" alt="Residuals"
+     style="width:100%; max-width:800px; border-radius:8px; margin-top:0.5rem;">
+
+{# ════════════════════════════════════════════════════════════════════════ #}
+{# 5. Optimization Agreement                                              #}
+{# ════════════════════════════════════════════════════════════════════════ #}
+<h2>5. Optimization Agreement</h2>
+<p style="color:var(--text-muted);">
+    Maximize yield subject to purity ≥ 88%.
+    Match score: <strong>{{ "%.4f"|format(r.match_score) }}</strong> (1.0 = identical).
+</p>
+{% if r.opt_rows %}
+<table>
+    <thead>
+        <tr><th>Variable</th><th>Explicit</th><th>Learned</th><th>|Diff|</th></tr>
+    </thead>
+    <tbody>
+        {% for row in r.opt_rows %}
+        <tr>
+            <td><strong>{{ row.variable.replace("_"," ").title() }}</strong></td>
+            <td>{{ "%.4f"|format(row.explicit) }}</td>
+            <td>{{ "%.4f"|format(row.learned) }}</td>
+            <td>{{ "%.4f"|format(row.diff) }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p style="color:#d62728;">One or both optimizers failed.</p>
+{% endif %}
+
+{# ════════════════════════════════════════════════════════════════════════ #}
+{# 6. Constraint Verification                                             #}
+{# ════════════════════════════════════════════════════════════════════════ #}
+<h2>6. Constraint Verification</h2>
+<p style="color:var(--text-muted);">
+    Modelless recommendation verified against noise-free baseline.
+    Overall: <strong style="color:{{ '#2ca02c' if r.recommendation_safe else '#d62728' }};">
+    {{ "SAFE" if r.recommendation_safe else "UNSAFE" }}</strong>
+</p>
+{% if r.constraint_checks %}
+<table>
+    <thead>
+        <tr><th>Constraint</th><th>Baseline Value</th><th>Threshold</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+        {% for ch in r.constraint_checks %}
+        <tr>
+            <td><strong>{{ ch.name }}</strong></td>
+            <td>{{ ch.value }}</td>
+            <td>{{ ch.threshold }}</td>
+            <td style="color:{{ '#2ca02c' if ch.passed else '#d62728' }}; font-weight:bold;">
+                {{ "PASS" if ch.passed else "FAIL" }}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+{# ════════════════════════════════════════════════════════════════════════ #}
+{# Noise Robustness (supporting data for gate 7)                          #}
+{# ════════════════════════════════════════════════════════════════════════ #}
+<h2 style="margin-top:2rem;">Noise Robustness (supporting data)</h2>
+<p style="color:var(--text-muted);">
+    Performance across 5 noise levels (data generated client-side, no server needed).
+</p>
+<table>
+    <thead>
+        <tr>
+            <th>Level</th><th>σ</th>
+            <th>Yield R²</th><th>Purity R²</th>
+            <th>Yield MAE</th><th>Purity MAE</th>
+            <th>Safe?</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for nr in r.noise_rows %}
+        <tr>
+            <td><strong>{{ nr.label }}</strong></td>
+            <td>{{ "%.2f"|format(nr.sigma) }}</td>
+            <td>{{ "%.6f"|format(nr.yield_r2) }}</td>
+            <td>{{ "%.6f"|format(nr.purity_r2) }}</td>
+            <td>{{ "%.4f"|format(nr.yield_mae) }}</td>
+            <td>{{ "%.4f"|format(nr.purity_mae) }}</td>
+            <td style="color:{{ '#2ca02c' if nr.safe else '#d62728' }}; font-weight:bold;">
+                {{ "SAFE" if nr.safe else "UNSAFE" }}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{# ════════════════════════════════════════════════════════════════════════ #}
+{# 7. POV Gate Summary                                                    #}
+{# ════════════════════════════════════════════════════════════════════════ #}
+<h2 style="margin-top:2rem;">7. POV Gate Summary</h2>
+<table>
+    <thead>
+        <tr><th>Gate</th><th>Criterion</th><th>Detail</th><th>Result</th></tr>
+    </thead>
+    <tbody>
+        {% for g in r.gates %}
+        {% set gc = "#2ca02c" if g.status == "pass" else "#d62728" if g.status == "fail" else "#ff7f0e" %}
+        <tr>
+            <td><strong>{{ g.name }}</strong></td>
+            <td style="font-size:0.88rem;">{{ g.criterion }}</td>
+            <td style="font-size:0.88rem;">{{ g.detail }}</td>
+            <td style="color:{{ gc }}; font-weight:bold; font-size:1.05rem;">
+                {{ g.status|upper }}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div style="text-align:center; padding:1rem; margin-top:1.5rem;
+            border:2px solid {{ verdict_color }}; border-radius:8px;">
+    <strong style="font-size:1.3rem; color:{{ verdict_color }};">
+        Overall: {{ r.overall|upper }}
+    </strong>
+</div>
+
+<p style="color:var(--text-muted); font-size:0.85rem; margin-top:1.5rem;">
+    For deep-dive analysis, see individual pages:
+    <a href="{{ url_for('main.explicit') }}">Explicit</a> ·
+    <a href="{{ url_for('main.predictor') }}">Predictor</a> ·
+    <a href="{{ url_for('main.comparison') }}">Comparison</a> ·
+    <a href="{{ url_for('main.sensitivity') }}">Sensitivity</a> ·
+    <a href="{{ url_for('main.residuals') }}">Residuals</a> ·
+    <a href="{{ url_for('main.optimization') }}">Optimization</a> ·
+    <a href="{{ url_for('main.constraints') }}">Constraints</a> ·
+    <a href="{{ url_for('main.noise') }}">Noise</a>
+</p>
+
+{% endblock %}

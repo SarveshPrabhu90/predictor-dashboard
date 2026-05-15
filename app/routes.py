@@ -13,6 +13,15 @@ def home():
     return render_template("home.html", server_up=server_up)
 
 
+@bp.route("/pov")
+def pov():
+    if not analysis.server_is_available():
+        return render_template("error.html",
+                               message="TCP server is not running. Start explicit-model on port 9100.")
+    results = analysis.run_pov_summary()
+    return render_template("pov.html", r=results)
+
+
 @bp.route("/explicit")
 def explicit():
     if not analysis.server_is_available():
@@ -161,4 +170,15 @@ def api_constraints():
 def api_noise():
     results = analysis.run_noise_analysis()
     results.pop("chart", None)
+    return jsonify(results)
+
+
+@bp.route("/api/pov")
+def api_pov():
+    if not analysis.server_is_available():
+        return jsonify({"error": "TCP server not available"}), 503
+    results = analysis.run_pov_summary()
+    for key in list(results.keys()):
+        if key.startswith("chart_"):
+            results.pop(key)
     return jsonify(results)

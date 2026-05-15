@@ -1268,3 +1268,366 @@ def run_noise_analysis():
         "chart": chart,
         "all_safe": all(r["constraint_safe"] for r in rows),
     }
+
+
+# ── POV Summary (unified evaluation) ──────────────────────────────────────
+
+POV_TRAIN = 300
+POV_TEST = 200
+POV_SAMPLE_SIZES = [5, 10, 25, 50, 100, 200]
+POV_NOISE_LEVELS = [
+    ("none", 0.0), ("low", 0.25), ("medium", 0.5),
+    ("high", 1.0), ("extreme", 2.0),
+]
+
+
+def run_pov_summary():
+    """Single-pass proof-of-value evaluation across all analysis dimensions."""
+    from sklearn.metrics import mean_squared_error
+
+    t_start = time.time()
+    rng = np.random.default_rng(42)
+    np.random.seed(42)
+    run_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+
+    # ── 1. Collect data ──────────────────────────────────────────────────
+    train_in, train_out = collect_observations(POV_TRAIN)
+    test_in, test_out = collect_observations(POV_TEST)
+    gt_test = ground_truth(test_in)
+
+    # ── 2. Train modelless predictor ─────────────────────────────────────
+    models = []
+    for i in range(2):
+        m = LinearRegression()
+        m.fit(train_in, train_out[:, i])
+        models.append(m)
+    preds = np.column_stack([m.predict(test_in) for m in models])
+
+    learned_coeffs = {
+        OUTPUT_NAMES[i]: {
+            "weights": models[i].coef_.tolist(),
+            "intercept": float(models[i].intercept_),
+        }
+        for i in range(2)
+    }
+
+    # ── Section 1: Run Summary ───────────────────────────────────────────
+    run_summary = {
+        "run_id": run_id,
+        "data_type": "synthetic (TCP server + client-side noise sweep)",
+        "sample_size": POV_TRAIN,
+        "model_type": "LinearRegression (scikit-learn)",
+        "noise_level": f"σ = {NOISE_STD} (server default)",
+        "train_test_split": f"{POV_TRAIN} train / {POV_TEST} test",
+    }
+
+    # ── Section 2: Prediction Accuracy ───────────────────────────────────
+    residuals = gt_test - preds
+    accuracy = {}
+    for i, name in enumerate(OUTPUT_NAMES):
+        accuracy[name] = {
+            "r2": round(float(r2_score(gt_test[:, i], preds[:, i])), 6),
+            "mae": round(float(mean_absolute_error(gt_test[:, i], preds[:, i])), 6),
+            "rmse": round(float(np.sqrt(mean_squared_error(gt_test[:, i], preds[:, i]))), 6),
+        }
+
+    # Chart: actual vs predicted (1×2)
+    fig_acc, axes = plt.subplots(1, 2, figsize=(10, 4.5))
+    fig_acc.suptitle("Prediction Accuracy", fontsize=12, fontweight="bold")
+    for col, (name, color) in enumerate(zip(OUTPUT_NAMES, ["#1f77b4", "#ff7f0e"])):
+        ax = axes[col]
+        ax.scatter(gt_test[:, col], preds[:, col], s=10, alpha=0.5, c=color)
+        lo, hi = gt_test[:, col].min(), gt_test[:, col].max()
+        ax.plot([lo, hi], [lo, hi], "r--", lw=1)
+        ax.set_xlabel(f"Actual {name.capitalize()}")
+        ax.set_ylabel(f"Predicted {name.capitalize()}")
+        ax.set_title(f"R² = {accuracy[name]['r2']:.6f}")
+    plt.tight_layout(rect=[0, 0, 1, 0.92])
+    chart_accuracy = _fig_to_base64(fig_acc)
+
+    # ── Section 3: Sample-Size Sensitivity ───────────────────────────────
+    # Use a large pool from the already-collected training data
+    max_pool = max(POV_SAMPLE_SIZES)
+    pool_in, pool_out = collect_observations(max_pool)
+    sens_test_in, _ = collect_observations(100)
+    gt_sens = ground_truth(sens_test_in)
+
+    sensitivity_rows = []
+    for n in POV_SAMPLE_SIZES:
+        sub_in = pool_in[:n]
+        sub_out = pool_out[:n]
+        sub_models = []
+        for i in range(2):
+            m = LinearRegression()
+            m.fit(sub_in, sub_out[:, i])
+            sub_models.append(m)
+        sub_preds = np.column_stack([m.predict(sens_test_in) for m in sub_models])
+        row = {"n": n}
+        for i, name in enumerate(OUTPUT_NAMES):
+            row[f"{name}_r2"] = round(float(r2_score(gt_sens[:, i], sub_preds[:, i])), 6)
+            row[f"{name}_mae"] = round(float(mean_absolute_error(gt_sens[:, i], sub_preds[:, i])), 6)
+        sensitivity_rows.append(row)
+
+    # Thresholds
+    sens_thresholds = {}
+    for name in OUTPUT_NAMES:
+        for row in sensitivity_rows:
+            if row[f"{name}_r2"] >= 0.99:
+                sens_thresholds[name] = row["n"]
+                break
+        else:
+            sens_thresholds[name] = None
+
+    # Chart: R² trend (1×1)
+    fig_sens, ax = plt.subplots(1, 1, figsize=(6, 4))
+    ax.set_title("R² by Sample Size", fontsize=12, fontweight="bold")
+    sizes = [r["n"] for r in sensitivity_rows]
+    for name, color in [("yield", "#1f77b4"), ("purity", "#ff7f0e")]:
+        vals = [r[f"{name}_r2"] for r in sensitivity_rows]
+        ax.plot(sizes, vals, "o-", color=color, label=name.capitalize(), lw=2, ms=6)
+    ax.axhline(0.99, color="gray", ls="--", lw=1, alpha=0.5)
+    ax.set_xlabel("Training Samples")
+    ax.set_ylabel("R²")
+    ax.set_xscale("log")
+    ax.set_xticks(sizes)
+    ax.set_xticklabels([str(s) for s in sizes])
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    chart_sensitivity = _fig_to_base64(fig_sens)
+
+    # ── Section 4: Residual Analysis ─────────────────────────────────────
+    residual_summary = {}
+    for i, name in enumerate(OUTPUT_NAMES):
+        r = residuals[:, i]
+        abs_r = np.abs(r)
+        residual_summary[name] = {
+            "mean": round(float(r.mean()), 6),
+            "mean_abs": round(float(abs_r.mean()), 6),
+            "max_abs": round(float(abs_r.max()), 6),
+            "p50": round(float(np.percentile(abs_r, 50)), 6),
+            "p90": round(float(np.percentile(abs_r, 90)), 6),
+            "p95": round(float(np.percentile(abs_r, 95)), 6),
+        }
+
+    # Chart: residual vs predicted (1×2)
+    fig_res, axes = plt.subplots(1, 2, figsize=(10, 4.5))
+    fig_res.suptitle("Residuals (actual − predicted)", fontsize=12, fontweight="bold")
+    for col, (name, color) in enumerate(zip(OUTPUT_NAMES, ["#1f77b4", "#ff7f0e"])):
+        ax = axes[col]
+        ax.scatter(preds[:, col], residuals[:, col], s=10, alpha=0.5, c=color)
+        ax.axhline(0, color="red", ls="--", lw=1)
+        ax.set_xlabel(f"Predicted {name.capitalize()}")
+        ax.set_ylabel("Residual")
+        ax.set_title(f"{name.capitalize()}: mean={residual_summary[name]['mean']:+.4f}")
+    plt.tight_layout(rect=[0, 0, 1, 0.92])
+    chart_residuals = _fig_to_base64(fig_res)
+
+    # ── Section 5: Optimization Agreement ────────────────────────────────
+    # Explicit optimizer
+    c_exp = -YIELD_W
+    A_exp = [-PURITY_W]
+    b_exp = [-(88.0 - PURITY_I)]
+    r_exp = linprog(c_exp, A_ub=A_exp, b_ub=b_exp, bounds=INPUT_RANGES, method="highs")
+
+    # Learned optimizer
+    lrn_yield_w = np.array(learned_coeffs["yield"]["weights"])
+    lrn_purity_w = np.array(learned_coeffs["purity"]["weights"])
+    lrn_purity_i = learned_coeffs["purity"]["intercept"]
+    c_lrn = -lrn_yield_w
+    A_lrn = [-lrn_purity_w]
+    b_lrn = [-(88.0 - lrn_purity_i)]
+    r_lrn = linprog(c_lrn, A_ub=A_lrn, b_ub=b_lrn, bounds=INPUT_RANGES, method="highs")
+
+    opt_rows = []
+    match_score = 0.0
+    if r_exp.success and r_lrn.success:
+        exp_x, lrn_x = r_exp.x, r_lrn.x
+        exp_yield = float(exp_x @ YIELD_W + YIELD_I)
+        exp_purity = float(exp_x @ PURITY_W + PURITY_I)
+        lrn_pred = np.column_stack([m.predict(lrn_x.reshape(1, -1)) for m in models])[0]
+        lrn_yield, lrn_purity = float(lrn_pred[0]), float(lrn_pred[1])
+
+        for i, name in enumerate(INPUT_NAMES):
+            opt_rows.append({"variable": name,
+                             "explicit": round(exp_x[i], 4), "learned": round(lrn_x[i], 4),
+                             "diff": round(abs(exp_x[i] - lrn_x[i]), 4)})
+        opt_rows.append({"variable": "predicted_yield",
+                         "explicit": round(exp_yield, 4), "learned": round(lrn_yield, 4),
+                         "diff": round(abs(exp_yield - lrn_yield), 4)})
+        opt_rows.append({"variable": "predicted_purity",
+                         "explicit": round(exp_purity, 4), "learned": round(lrn_purity, 4),
+                         "diff": round(abs(exp_purity - lrn_purity), 4)})
+
+        ranges = [b[1] - b[0] for b in INPUT_RANGES]
+        norm_diffs = [abs(exp_x[j] - lrn_x[j]) / r for j, r in enumerate(ranges)]
+        match_score = round(max(0.0, 1.0 - sum(norm_diffs) / len(norm_diffs)), 6)
+
+    # ── Section 6: Constraint Verification ───────────────────────────────
+    constraint_checks = []
+    if r_lrn.success:
+        rec = r_lrn.x
+        gt_at_rec = ground_truth(rec.reshape(1, -1))[0]
+        bl_yield, bl_purity = float(gt_at_rec[0]), float(gt_at_rec[1])
+
+        constraint_checks.append({
+            "name": "Purity ≥ 88%",
+            "value": round(bl_purity, 4),
+            "threshold": "≥ 88.0",
+            "passed": bl_purity >= 88.0,
+        })
+        constraint_checks.append({
+            "name": "Yield > 0",
+            "value": round(bl_yield, 4),
+            "threshold": "> 0.0",
+            "passed": bl_yield > 0.0,
+        })
+        for i, name in enumerate(INPUT_NAMES):
+            lo, hi = INPUT_RANGES[i]
+            val = round(float(rec[i]), 4)
+            constraint_checks.append({
+                "name": f"{name} in [{lo}, {hi}]",
+                "value": val,
+                "threshold": f"[{lo}, {hi}]",
+                "passed": lo <= rec[i] <= hi,
+            })
+    recommendation_safe = len(constraint_checks) > 0 and all(c["passed"] for c in constraint_checks)
+
+    # ── Section 7 (input): Noise robustness ──────────────────────────────
+    noise_rows = []
+    for label, sigma in POV_NOISE_LEVELS:
+        n_train_in, n_train_out, _ = _generate_local(POV_TRAIN, sigma, rng)
+        n_test_in, _, n_gt_test = _generate_local(POV_TEST, 0.0, rng)
+
+        n_models = []
+        for i in range(2):
+            m = LinearRegression()
+            m.fit(n_train_in, n_train_out[:, i])
+            n_models.append(m)
+        n_preds = np.column_stack([m.predict(n_test_in) for m in n_models])
+
+        nr = {"label": label, "sigma": sigma}
+        for i, name in enumerate(OUTPUT_NAMES):
+            nr[f"{name}_r2"] = round(float(r2_score(n_gt_test[:, i], n_preds[:, i])), 6)
+            nr[f"{name}_mae"] = round(float(mean_absolute_error(n_gt_test[:, i], n_preds[:, i])), 6)
+
+        # Constraint check at this noise level
+        n_yield_w = np.array(n_models[0].coef_)
+        n_purity_w = np.array(n_models[1].coef_)
+        n_purity_i = float(n_models[1].intercept_)
+        c_n = -n_yield_w
+        A_n = [-n_purity_w]
+        b_n = [-(88.0 - n_purity_i)]
+        r_n = linprog(c_n, A_ub=A_n, b_ub=b_n, bounds=INPUT_RANGES, method="highs")
+        if r_n.success:
+            gt_p = float(r_n.x @ PURITY_W + PURITY_I)
+            nr["safe"] = gt_p >= 88.0
+        else:
+            nr["safe"] = False
+        noise_rows.append(nr)
+
+    # ── Section 7: POV Gate Summary ──────────────────────────────────────
+    gates = []
+
+    # Accuracy gate
+    acc_pass = (accuracy["yield"]["r2"] >= 0.999 and accuracy["purity"]["r2"] >= 0.999)
+    gates.append({
+        "name": "Prediction Accuracy",
+        "criterion": "R² ≥ 0.999 for both outputs vs ground truth",
+        "status": "pass" if acc_pass else "fail",
+        "detail": f"yield R²={accuracy['yield']['r2']:.6f}, purity R²={accuracy['purity']['r2']:.6f}",
+    })
+
+    # Sample efficiency gate
+    eff_pass = all(sens_thresholds.get(n) is not None and sens_thresholds[n] <= 25
+                   for n in OUTPUT_NAMES)
+    gates.append({
+        "name": "Sample Efficiency",
+        "criterion": "R² ≥ 0.99 by n = 25 for both outputs",
+        "status": "pass" if eff_pass else ("review" if any(
+            sens_thresholds.get(n) is not None and sens_thresholds[n] <= 50
+            for n in OUTPUT_NAMES) else "fail"),
+        "detail": ", ".join(f"{n}: n={sens_thresholds.get(n, '>200')}" for n in OUTPUT_NAMES),
+    })
+
+    # Decision agreement gate
+    dec_pass = match_score >= 0.95
+    gates.append({
+        "name": "Decision Agreement",
+        "criterion": "Optimization match score ≥ 0.95",
+        "status": "pass" if dec_pass else "review" if match_score >= 0.80 else "fail",
+        "detail": f"match score = {match_score:.4f}",
+    })
+
+    # Constraint safety gate
+    gates.append({
+        "name": "Constraint Safety",
+        "criterion": "All constraints pass under baseline verification",
+        "status": "pass" if recommendation_safe else "fail",
+        "detail": f"{sum(1 for c in constraint_checks if c['passed'])}/{len(constraint_checks)} passed",
+    })
+
+    # Robustness gate
+    medium_row = next((r for r in noise_rows if r["label"] == "medium"), None)
+    low_row = next((r for r in noise_rows if r["label"] == "low"), None)
+    robust_r2 = (medium_row and medium_row["yield_r2"] >= 0.99
+                 and medium_row["purity_r2"] >= 0.99)
+    robust_safe = low_row["safe"] if low_row else False
+    gates.append({
+        "name": "Robustness",
+        "criterion": "R² ≥ 0.99 at medium noise; constraints safe at low noise",
+        "status": "pass" if (robust_r2 and robust_safe) else
+                  "review" if robust_r2 else "fail",
+        "detail": (f"medium R²: y={medium_row['yield_r2']:.6f} p={medium_row['purity_r2']:.6f}; "
+                   f"low noise safe={low_row['safe']}" if medium_row and low_row else "N/A"),
+    })
+
+    overall = ("pass" if all(g["status"] == "pass" for g in gates) else
+               "fail" if any(g["status"] == "fail" for g in gates) else "review")
+
+    duration = time.time() - t_start
+    write_manifest(
+        OUTPUT_DIR,
+        analysis_type="pov_summary",
+        data_type="synthetic",
+        explicit_model_source="TCP server + known coefficients",
+        explicit_model_version="1.0.0",
+        modelless_model_type="LinearRegression",
+        sample_size={"train": POV_TRAIN, "test": POV_TEST},
+        train_test_split={"train": POV_TRAIN, "test": POV_TEST},
+        random_seed=42,
+        noise_level=NOISE_STD,
+        constraints_used={"min_purity": 88.0},
+        metrics={
+            "accuracy": accuracy,
+            "optimization_match_score": match_score,
+            "recommendation_safe": recommendation_safe,
+            "pov_gate_overall": overall,
+        },
+        all_checks_pass=overall == "pass",
+        plot_files=["(base64 embedded)"],
+        metric_files=[],
+        prediction_files=[],
+        residual_files=[],
+        optimization_files=[],
+        duration_seconds=round(duration, 2),
+    )
+
+    return {
+        "run_summary": run_summary,
+        "accuracy": accuracy,
+        "chart_accuracy": chart_accuracy,
+        "sensitivity_rows": sensitivity_rows,
+        "sens_thresholds": sens_thresholds,
+        "chart_sensitivity": chart_sensitivity,
+        "residual_summary": residual_summary,
+        "chart_residuals": chart_residuals,
+        "opt_rows": opt_rows,
+        "match_score": match_score,
+        "constraint_checks": constraint_checks,
+        "recommendation_safe": recommendation_safe,
+        "noise_rows": noise_rows,
+        "gates": gates,
+        "overall": overall,
+        "duration": round(duration, 2),
+    }
