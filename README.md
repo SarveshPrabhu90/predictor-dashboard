@@ -18,6 +18,7 @@ approaches produce near-identical results.
 | **Comparison** | `/comparison` | Side-by-side predictions & optimization — yield difference typically < 0.2% |
 | **Sensitivity** | `/sensitivity` | Sample-size sweep — R², MAE, RMSE at n = 5, 10, 25, 50, 100, 200 |
 | **Residuals** | `/residuals` | Per-observation error analysis — summary stats, actual vs predicted, residual plots |
+| **Optimization** | `/optimization` | Explicit vs learned optimizer agreement — match score, input/output comparison |
 
 ### API Endpoints
 
@@ -29,6 +30,7 @@ approaches produce near-identical results.
 | `GET /api/comparison` | Side-by-side comparison results (JSON) |
 | `GET /api/sensitivity` | Sample-size sensitivity sweep results (JSON) |
 | `GET /api/residuals` | Residual summary statistics (JSON) |
+| `GET /api/optimization` | Optimization agreement results (JSON) |
 
 ## Architecture
 

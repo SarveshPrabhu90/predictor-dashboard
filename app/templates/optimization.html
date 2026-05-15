@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Optimization Agreement — Predictor Dashboard{% endblock %}
+
+{% block content %}
+<h1>Optimization Agreement</h1>
+<p style="color: var(--text-muted);">
+    Both the explicit baseline and the modelless predictor (trained on
+    {{ r.n_train }} observations) optimize for maximum yield subject to
+    purity &ge; {{ r.min_purity }}%.  How close are their recommendations?
+</p>
+
+<div class="card-grid">
+    <div class="stat-card">
+        <div class="value">{{ "%.4f"|format(r.match_score) }}</div>
+        <div class="label">Match Score (1.0 = perfect)</div>
+    </div>
+    <div class="stat-card">
+        <div class="value">{{ "%.2f"|format(r.explicit.yield) }}</div>
+        <div class="label">Explicit Optimal Yield</div>
+    </div>
+    <div class="stat-card">
+        <div class="value">{{ "%.2f"|format(r.learned.yield) }}</div>
+        <div class="label">Learned Optimal Yield</div>
+    </div>
+</div>
+
+<h2>Side-by-Side Comparison</h2>
+<table>
+    <thead>
+        <tr>
+            <th>Variable</th>
+            <th>Explicit</th>
+            <th>Learned</th>
+            <th>|Difference|</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in r.rows %}
+        <tr>
+            <td><strong>{{ row.variable.replace("_", " ").title() }}</strong></td>
+            <td>{{ "%.4f"|format(row.explicit) }}</td>
+            <td>{{ "%.4f"|format(row.learned) }}</td>
+            <td>{{ "%.4f"|format(row.diff) }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h2>Ground Truth Check</h2>
+<p style="color: var(--text-muted); font-size: 0.9rem;">
+    What would the <em>real</em> plant produce at the learned predictor's recommended inputs?
+</p>
+<table>
+    <thead>
+        <tr><th>Output</th><th>Learned Prediction</th><th>Ground Truth</th><th>|Error|</th></tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>Yield</strong></td>
+            <td>{{ "%.4f"|format(r.learned.yield) }}</td>
+            <td>{{ "%.4f"|format(r.learned.gt_yield) }}</td>
+            <td>{{ "%.4f"|format((r.learned.yield - r.learned.gt_yield)|abs) }}</td>
+        </tr>
+        <tr>
+            <td><strong>Purity</strong></td>
+            <td>{{ "%.4f"|format(r.learned.purity) }}</td>
+            <td>{{ "%.4f"|format(r.learned.gt_purity) }}</td>
+            <td>{{ "%.4f"|format((r.learned.purity - r.learned.gt_purity)|abs) }}</td>
+        </tr>
+    </tbody>
+</table>
+
+<h2>Charts</h2>
+<img src="data:image/png;base64,{{ r.chart }}" alt="Optimization Charts"
+     style="width:100%; max-width:1100px; border-radius:8px;">
+
+<h2>How to Interpret</h2>
+<div class="check-box" style="border-left: 3px solid var(--accent);">
+    <ul>
+        <li><strong>Match score = 1.0</strong> means the learned optimizer recommends
+            exactly the same inputs as the explicit baseline. Scores above 0.95 indicate
+            strong agreement.</li>
+        <li><strong>Small input differences</strong> are expected — the learned model
+            trains on noisy observations, so its coefficients are slightly different.</li>
+        <li><strong>Ground truth check</strong> — even if predictions differ slightly,
+            the real plant output at the learned optimum should still be close to the
+            explicit optimum's output.</li>
+        <li><strong>Yield difference &lt; 0.5%</strong> is a strong indicator that the
+            learned model is operationally equivalent to the explicit baseline.</li>
+    </ul>
+</div>
+{% endblock %}

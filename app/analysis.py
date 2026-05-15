@@ -784,3 +784,161 @@ def run_residual_analysis():
         "obs_rows": obs_rows,
         "chart": chart,
     }
+
+
+# ── Optimization agreement ─────────────────────────────────────────────────
+
+OPT_TRAIN = 300
+OPT_MIN_PURITY = 88.0
+
+
+def run_optimization_analysis():
+    """Compare explicit vs learned optimizer recommendations."""
+    t_start = time.time()
+    np.random.seed(42)
+
+    train_in, train_out = collect_observations(OPT_TRAIN)
+
+    # Train modelless predictor
+    models = []
+    for i in range(2):
+        m = LinearRegression()
+        m.fit(train_in, train_out[:, i])
+        models.append(m)
+
+    learned_coeffs = {
+        OUTPUT_NAMES[i]: {
+            "weights": models[i].coef_.tolist(),
+            "intercept": float(models[i].intercept_),
+        }
+        for i in range(2)
+    }
+
+    # Explicit optimizer (known coefficients)
+    c_exp = -YIELD_W
+    A_exp = [-PURITY_W]
+    b_exp = [-(OPT_MIN_PURITY - PURITY_I)]
+    r_exp = linprog(c_exp, A_ub=A_exp, b_ub=b_exp, bounds=INPUT_RANGES, method="highs")
+
+    # Learned optimizer
+    lrn_yield_w = np.array(learned_coeffs["yield"]["weights"])
+    lrn_purity_w = np.array(learned_coeffs["purity"]["weights"])
+    lrn_purity_i = learned_coeffs["purity"]["intercept"]
+    c_lrn = -lrn_yield_w
+    A_lrn = [-lrn_purity_w]
+    b_lrn = [-(OPT_MIN_PURITY - lrn_purity_i)]
+    r_lrn = linprog(c_lrn, A_ub=A_lrn, b_ub=b_lrn, bounds=INPUT_RANGES, method="highs")
+
+    if not r_exp.success or not r_lrn.success:
+        return {"error": "One or both optimizers failed."}
+
+    # Predictions at optimal points
+    exp_x = r_exp.x
+    lrn_x = r_lrn.x
+    exp_yield = float(exp_x @ YIELD_W + YIELD_I)
+    exp_purity = float(exp_x @ PURITY_W + PURITY_I)
+    lrn_pred = np.column_stack([m.predict(lrn_x.reshape(1, -1)) for m in models])[0]
+    lrn_yield = float(lrn_pred[0])
+    lrn_purity = float(lrn_pred[1])
+
+    # Ground truth at learned optimum (to check real-world performance)
+    gt_at_lrn = ground_truth(lrn_x.reshape(1, -1))[0]
+
+    # Build comparison rows
+    rows = []
+    for i, name in enumerate(INPUT_NAMES):
+        rows.append({
+            "variable": name,
+            "explicit": round(exp_x[i], 4),
+            "learned": round(lrn_x[i], 4),
+            "diff": round(abs(exp_x[i] - lrn_x[i]), 4),
+        })
+    rows.append({"variable": "predicted_yield", "explicit": round(exp_yield, 4),
+                 "learned": round(lrn_yield, 4), "diff": round(abs(exp_yield - lrn_yield), 4)})
+    rows.append({"variable": "predicted_purity", "explicit": round(exp_purity, 4),
+                 "learned": round(lrn_purity, 4), "diff": round(abs(exp_purity - lrn_purity), 4)})
+
+    # Match score: 1.0 = perfect, penalised by normalised input distance
+    ranges = [b[1] - b[0] for b in INPUT_RANGES]
+    norm_diffs = [abs(exp_x[i] - lrn_x[i]) / r for i, r in enumerate(ranges)]
+    match_score = round(max(0.0, 1.0 - sum(norm_diffs) / len(norm_diffs)), 6)
+
+    # Bar chart comparing the two recommendations
+    fig, axes = plt.subplots(1, 3, figsize=(14, 5))
+    fig.suptitle(f"Optimization Agreement  (match score = {match_score:.4f})",
+                 fontsize=13, fontweight="bold")
+
+    # Input comparison
+    ax = axes[0]
+    x_pos = np.arange(len(INPUT_NAMES))
+    w = 0.35
+    ax.bar(x_pos - w / 2, exp_x, w, label="Explicit", color="#2ca02c", alpha=0.8)
+    ax.bar(x_pos + w / 2, lrn_x, w, label="Learned", color="#d62728", alpha=0.8)
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels([n.replace("_", "\n") for n in INPUT_NAMES], fontsize=8)
+    ax.set_title("Optimal Inputs")
+    ax.legend(fontsize=8)
+
+    # Output comparison
+    ax = axes[1]
+    labels = ["Yield", "Purity"]
+    exp_vals = [exp_yield, exp_purity]
+    lrn_vals = [lrn_yield, lrn_purity]
+    x_pos = np.arange(2)
+    ax.bar(x_pos - w / 2, exp_vals, w, label="Explicit", color="#2ca02c", alpha=0.8)
+    ax.bar(x_pos + w / 2, lrn_vals, w, label="Learned", color="#d62728", alpha=0.8)
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(labels)
+    ax.set_title("Predicted Outputs at Optimum")
+    ax.legend(fontsize=8)
+    ax.axhline(OPT_MIN_PURITY, color="orange", ls="--", lw=1.5, label=f"Min purity = {OPT_MIN_PURITY}")
+
+    # Normalised difference radar-style bar
+    ax = axes[2]
+    all_labels = INPUT_NAMES + ["yield", "purity"]
+    all_diffs = [abs(exp_x[i] - lrn_x[i]) for i in range(3)] + [
+        abs(exp_yield - lrn_yield), abs(exp_purity - lrn_purity)]
+    colors = ["#1f77b4"] * 3 + ["#ff7f0e"] * 2
+    ax.barh(range(len(all_labels)), all_diffs, color=colors, alpha=0.8)
+    ax.set_yticks(range(len(all_labels)))
+    ax.set_yticklabels([n.replace("_", " ").title() for n in all_labels], fontsize=9)
+    ax.set_xlabel("Absolute Difference")
+    ax.set_title("Explicit vs Learned Differences")
+    ax.invert_yaxis()
+
+    plt.tight_layout(rect=[0, 0, 1, 0.93])
+    chart = _fig_to_base64(fig)
+
+    duration = time.time() - t_start
+    write_manifest(
+        OUTPUT_DIR,
+        analysis_type="optimization_agreement",
+        data_type="synthetic",
+        explicit_model_source="known coefficients + TCP server",
+        explicit_model_version="1.0.0",
+        modelless_model_type="LinearRegression",
+        sample_size={"train": OPT_TRAIN},
+        train_test_split=None,
+        random_seed=42,
+        noise_level=NOISE_STD,
+        constraints_used={"min_purity": OPT_MIN_PURITY},
+        metrics={"optimization_match_score": match_score},
+        all_checks_pass=match_score >= 0.95,
+        plot_files=["(base64 embedded)"],
+        metric_files=[],
+        prediction_files=[],
+        residual_files=[],
+        optimization_files=["(base64 embedded)"],
+        duration_seconds=round(duration, 2),
+    )
+
+    return {
+        "n_train": OPT_TRAIN,
+        "min_purity": OPT_MIN_PURITY,
+        "rows": rows,
+        "match_score": match_score,
+        "chart": chart,
+        "explicit": {"inputs": exp_x.tolist(), "yield": exp_yield, "purity": exp_purity},
+        "learned": {"inputs": lrn_x.tolist(), "yield": lrn_yield, "purity": lrn_purity,
+                     "gt_yield": float(gt_at_lrn[0]), "gt_purity": float(gt_at_lrn[1])},
+    }
