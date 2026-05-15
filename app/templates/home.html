@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Home — Predictor Dashboard{% endblock %}
+
+{% block content %}
+<h1>Model-Free Predictor — Proof of Value</h1>
+<p style="color: var(--text-muted); max-width: 700px;">
+    Demonstrating that a data-driven approach can replace an explicit mathematical
+    model by observing system behavior over TCP/IP.
+</p>
+
+<div class="card" style="margin-top: 1.5rem;">
+    <h2 style="margin-top:0;">Server Status</h2>
+    <p>
+        <span class="status-dot {{ 'up' if server_up else 'down' }}"></span>
+        TCP Plant Server (port 9100):
+        <strong>{{ "Online" if server_up else "Offline" }}</strong>
+    </p>
+    {% if not server_up %}
+    <p style="color: var(--text-muted); font-size: 0.9rem;">
+        Start the explicit-model server to enable dashboards:
+        <code style="background:#111;padding:0.2rem 0.5rem;border-radius:4px;">
+            cd explicit-model && python run_server.py
+        </code>
+    </p>
+    {% endif %}
+</div>
+
+<h2>Architecture</h2>
+<div class="arch-diagram">┌──────────────────────┐         TCP/IP          ┌──────────────────────┐
+│   Explicit Model     │ ◄──────────────────────► │   This Dashboard     │
+│   TCP Server         │   JSON over sockets      │   Flask (port 5000)  │
+│   (port 9100)        │                          │                      │
+└──────────────────────┘                          └──────────┬───────────┘
+                                                             │
+                              ┌───────────────────────────────┘
+                              │
+                    ┌─────────▼──────────┐
+                    │  Modelless         │
+                    │  Predictor         │
+                    │  (Linear Regr.)    │
+                    └─────────┬──────────┘
+                              │
+                    ┌─────────▼──────────┐
+                    │  LP Optimizer      │
+                    │  (scipy.linprog)   │
+                    └────────────────────┘</div>
+
+<h2>Dashboards</h2>
+<div class="feature-grid">
+    <div class="feature-card">
+        <a href="{{ url_for('main.explicit') }}">
+            <h3>🏭 Explicit Model</h3>
+            <p>Validate the ground-truth model's TCP server — noise analysis, input coverage, output distributions.</p>
+        </a>
+    </div>
+    <div class="feature-card">
+        <a href="{{ url_for('main.predictor') }}">
+            <h3>🧠 Modelless Predictor</h3>
+            <p>Train from live data, inspect learned coefficients, evaluate accuracy, and run LP optimization.</p>
+        </a>
+    </div>
+    <div class="feature-card">
+        <a href="{{ url_for('main.comparison') }}">
+            <h3>⚖️ Comparison</h3>
+            <p>Side-by-side analysis of explicit vs. learned models — predictions and optimization.</p>
+        </a>
+    </div>
+    <div class="feature-card">
+        <a href="{{ url_for('main.api_status') }}">
+            <h3>📡 API</h3>
+            <p>JSON endpoints for programmatic access: /api/status, /api/explicit, /api/predictor, /api/comparison</p>
+        </a>
+    </div>
+</div>
+
+<h2>Related Repositories</h2>
+<div class="card">
+    <table>
+        <tr>
+            <th>Repository</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td><a href="https://github.com/SarveshPrabhu90/explicit-model" style="color:#8be9fd;">explicit-model</a></td>
+            <td>Ground-truth pharmaceutical process model + TCP server</td>
+        </tr>
+        <tr>
+            <td><a href="https://github.com/SarveshPrabhu90/modelless-predictor" style="color:#8be9fd;">modelless-predictor</a></td>
+            <td>Data-driven predictor, data collector, LP optimizer</td>
+        </tr>
+        <tr>
+            <td><a href="https://github.com/SarveshPrabhu90/model-free-predictor-poc" style="color:#8be9fd;">model-free-predictor-poc</a></td>
+            <td>Original monorepo (proof of concept)</td>
+        </tr>
+    </table>
+</div>
+{% endblock %}

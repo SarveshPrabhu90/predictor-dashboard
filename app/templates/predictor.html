@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Modelless Predictor — Predictor Dashboard{% endblock %}
+
+{% block content %}
+<h1>Modelless Predictor — Validation</h1>
+<p style="color: var(--text-muted);">
+    Trained on {{ r.n_train }} observations, evaluated on {{ r.n_test }} test samples.
+    Compared against noise-free ground truth.
+</p>
+
+<div class="card-grid">
+    <div class="stat-card">
+        <div class="value">{{ r.n_train }}</div>
+        <div class="label">Training Samples</div>
+    </div>
+    <div class="stat-card">
+        <div class="value">{{ r.n_test }}</div>
+        <div class="label">Test Samples</div>
+    </div>
+    <div class="stat-card">
+        <div class="value">{{ "%.6f"|format(r.gt_metrics.yield.r2) }}</div>
+        <div class="label">Yield R² (vs truth)</div>
+    </div>
+    <div class="stat-card">
+        <div class="value">{{ "%.6f"|format(r.gt_metrics.purity.r2) }}</div>
+        <div class="label">Purity R² (vs truth)</div>
+    </div>
+</div>
+
+<h2>Learned vs. True Coefficients</h2>
+<div class="card">
+    <table>
+        <tr><th>Output</th><th></th><th>T weight</th><th>F weight</th><th>C weight</th><th>Intercept</th></tr>
+        {% for name in ['yield', 'purity'] %}
+        <tr>
+            <td rowspan="2">{{ name }}</td>
+            <td style="color:var(--pass);">Learned</td>
+            {% for w in r.learned_coeffs[name].weights %}
+            <td>{{ "%.4f"|format(w) }}</td>
+            {% endfor %}
+            <td>{{ "%.4f"|format(r.learned_coeffs[name].intercept) }}</td>
+        </tr>
+        <tr>
+            <td style="color:var(--text-muted);">True</td>
+            {% for w in r.true_coeffs[name].weights %}
+            <td>{{ "%.4f"|format(w) }}</td>
+            {% endfor %}
+            <td>{{ "%.4f"|format(r.true_coeffs[name].intercept) }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+<h2>Coefficient Recovery Error</h2>
+<div class="card">
+    <table>
+        <tr><th>Output</th><th>T error</th><th>F error</th><th>C error</th><th>Intercept error</th></tr>
+        {% for name in ['yield', 'purity'] %}
+        <tr>
+            <td>{{ name }}</td>
+            {% for e in r.coeff_errors[name].weight_errors %}
+            <td>{{ "%.6f"|format(e) }}</td>
+            {% endfor %}
+            <td>{{ "%.6f"|format(r.coeff_errors[name].intercept_error) }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+<h2>Test Metrics</h2>
+<div class="card">
+    <table>
+        <tr><th>Output</th><th colspan="2">vs Ground Truth</th><th colspan="2">vs Noisy Data</th></tr>
+        <tr><th></th><th>R²</th><th>MAE</th><th>R²</th><th>MAE</th></tr>
+        {% for name in ['yield', 'purity'] %}
+        <tr>
+            <td>{{ name }}</td>
+            <td>{{ "%.6f"|format(r.gt_metrics[name].r2) }}</td>
+            <td>{{ "%.4f"|format(r.gt_metrics[name].mae) }}</td>
+            <td>{{ "%.6f"|format(r.noisy_metrics[name].r2) }}</td>
+            <td>{{ "%.4f"|format(r.noisy_metrics[name].mae) }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+{% if r.optimization %}
+<h2>LP Optimization (max yield, purity ≥ 88%)</h2>
+<div class="card">
+    <table>
+        <tr><th></th><th>Temperature</th><th>Flow Rate</th><th>Concentration</th><th>Yield</th><th>Purity</th></tr>
+        <tr>
+            <td>Learned optimum</td>
+            <td>{{ "%.2f"|format(r.optimization.inputs[0]) }}°C</td>
+            <td>{{ "%.2f"|format(r.optimization.inputs[1]) }} L/min</td>
+            <td>{{ "%.2f"|format(r.optimization.inputs[2]) }}%</td>
+            <td>{{ "%.2f"|format(r.optimization.predicted_yield) }}%</td>
+            <td>{{ "%.2f"|format(r.optimization.predicted_purity) }}%</td>
+        </tr>
+        <tr>
+            <td style="color:var(--text-muted);">Ground truth at same inputs</td>
+            <td colspan="3"></td>
+            <td>{{ "%.2f"|format(r.optimization.gt_yield) }}%</td>
+            <td>{{ "%.2f"|format(r.optimization.gt_purity) }}%</td>
+        </tr>
+    </table>
+    <p style="margin-top:0.5rem;color:var(--text-muted);font-size:0.9rem;">
+        Yield error: {{ "%.4f"|format(r.optimization.yield_error) }}%
+    </p>
+</div>
+{% endif %}
+
+<h2>Dashboard</h2>
+<div class="card">
+    <img class="chart-img" src="data:image/png;base64,{{ r.chart }}" alt="Modelless Predictor Dashboard">
+</div>
+
+<h2>Validation Checks</h2>
+<div class="card">
+    {% if r.all_pass %}
+    <span class="badge-pass">ALL CHECKS PASSED</span>
+    {% else %}
+    <span class="badge-fail">SOME CHECKS FAILED</span>
+    {% endif %}
+    <ul class="check-list" style="margin-top: 1rem;">
+        {% for desc, passed in r.checks %}
+        <li class="{{ 'check-pass' if passed else 'check-fail' }}">{{ desc }}</li>
+        {% endfor %}
+    </ul>
+</div>
+{% endblock %}

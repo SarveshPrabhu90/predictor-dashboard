@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Error — Predictor Dashboard{% endblock %}
+
+{% block content %}
+<div class="error-box">
+    <h1>⚠️ Server Unavailable</h1>
+    <p>{{ message }}</p>
+    <p style="margin-top: 1rem;">
+        <a href="{{ url_for('main.home') }}" style="color: #8be9fd;">← Back to Home</a>
+    </p>
+</div>
+{% endblock %}

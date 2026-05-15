@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Explicit Model — Predictor Dashboard{% endblock %}
+
+{% block content %}
+<h1>Explicit Model — Validation</h1>
+<p style="color: var(--text-muted);">
+    {{ r.n_samples }} noisy observations collected from the TCP plant server and
+    compared against noise-free ground truth.
+</p>
+
+<div class="card-grid">
+    <div class="stat-card">
+        <div class="value">{{ r.n_samples }}</div>
+        <div class="label">Observations</div>
+    </div>
+    <div class="stat-card">
+        <div class="value">{{ "%.4f"|format(r.stats.yield.r2) }}</div>
+        <div class="label">Yield R²</div>
+    </div>
+    <div class="stat-card">
+        <div class="value">{{ "%.4f"|format(r.stats.purity.r2) }}</div>
+        <div class="label">Purity R²</div>
+    </div>
+    <div class="stat-card">
+        <div class="value">{{ "%.4f"|format(r.stats.yield.noise_std) }}</div>
+        <div class="label">Yield Noise σ (expect 0.5)</div>
+    </div>
+</div>
+
+<h2>Input Distributions</h2>
+<div class="card">
+    <table>
+        <tr><th>Variable</th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th></tr>
+        {% for name, s in r.input_stats.items() %}
+        <tr>
+            <td>{{ name }}</td>
+            <td>{{ "%.2f"|format(s.mean) }}</td>
+            <td>{{ "%.2f"|format(s.std) }}</td>
+            <td>{{ "%.2f"|format(s.min) }}</td>
+            <td>{{ "%.2f"|format(s.max) }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+<h2>Output Distributions (Noisy)</h2>
+<div class="card">
+    <table>
+        <tr><th>Output</th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th></tr>
+        {% for name, s in r.output_stats.items() %}
+        <tr>
+            <td>{{ name }}</td>
+            <td>{{ "%.2f"|format(s.mean) }}</td>
+            <td>{{ "%.2f"|format(s.std) }}</td>
+            <td>{{ "%.2f"|format(s.min) }}</td>
+            <td>{{ "%.2f"|format(s.max) }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+<h2>Noise Analysis</h2>
+<div class="card">
+    <table>
+        <tr><th>Output</th><th>Noise Mean</th><th>Noise σ</th><th>Expected σ</th><th>MAE</th><th>R²</th></tr>
+        {% for name, s in r.stats.items() %}
+        <tr>
+            <td>{{ name }}</td>
+            <td>{{ "%+.4f"|format(s.noise_mean) }}</td>
+            <td>{{ "%.4f"|format(s.noise_std) }}</td>
+            <td>0.5000</td>
+            <td>{{ "%.4f"|format(s.mae) }}</td>
+            <td>{{ "%.6f"|format(s.r2) }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+<h2>Dashboard</h2>
+<div class="card">
+    <img class="chart-img" src="data:image/png;base64,{{ r.chart }}" alt="Explicit Model Dashboard">
+</div>
+
+<h2>Validation Checks</h2>
+<div class="card">
+    {% if r.all_pass %}
+    <span class="badge-pass">ALL CHECKS PASSED</span>
+    {% else %}
+    <span class="badge-fail">SOME CHECKS FAILED</span>
+    {% endif %}
+    <ul class="check-list" style="margin-top: 1rem;">
+        {% for desc, passed in r.checks %}
+        <li class="{{ 'check-pass' if passed else 'check-fail' }}">{{ desc }}</li>
+        {% endfor %}
+    </ul>
+</div>
+{% endblock %}

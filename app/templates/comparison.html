@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Comparison — Predictor Dashboard{% endblock %}
+
+{% block content %}
+<h1>Explicit vs. Modelless — Comparison</h1>
+<p style="color: var(--text-muted);">
+    Trained on {{ r.n_train }} observations, compared on {{ r.n_test }} test samples.
+</p>
+
+<div class="card-grid">
+    <div class="stat-card">
+        <div class="value">{{ "%.6f"|format(r.comparison.yield.learned_r2) }}</div>
+        <div class="label">Yield Agreement R²</div>
+    </div>
+    <div class="stat-card">
+        <div class="value">{{ "%.4f"|format(r.comparison.yield.learned_mae) }}</div>
+        <div class="label">Yield MAE</div>
+    </div>
+    <div class="stat-card">
+        <div class="value">{{ "%.6f"|format(r.comparison.purity.learned_r2) }}</div>
+        <div class="label">Purity Agreement R²</div>
+    </div>
+    <div class="stat-card">
+        <div class="value">{{ "%.4f"|format(r.comparison.purity.learned_mae) }}</div>
+        <div class="label">Purity MAE</div>
+    </div>
+</div>
+
+{% if r.optimization %}
+<h2>Optimization Comparison (max yield, purity ≥ 88%)</h2>
+<div class="card">
+    <table>
+        <tr><th>Model</th><th>Temperature</th><th>Flow Rate</th><th>Concentration</th><th>Yield</th><th>Purity</th></tr>
+        <tr>
+            <td style="color:var(--pass);">Explicit</td>
+            <td>{{ "%.2f"|format(r.optimization.explicit.inputs[0]) }}°C</td>
+            <td>{{ "%.2f"|format(r.optimization.explicit.inputs[1]) }} L/min</td>
+            <td>{{ "%.2f"|format(r.optimization.explicit.inputs[2]) }}%</td>
+            <td>{{ "%.2f"|format(r.optimization.explicit.yield) }}%</td>
+            <td>{{ "%.2f"|format(r.optimization.explicit.purity) }}%</td>
+        </tr>
+        <tr>
+            <td style="color:#8be9fd;">Learned</td>
+            <td>{{ "%.2f"|format(r.optimization.learned.inputs[0]) }}°C</td>
+            <td>{{ "%.2f"|format(r.optimization.learned.inputs[1]) }} L/min</td>
+            <td>{{ "%.2f"|format(r.optimization.learned.inputs[2]) }}%</td>
+            <td>{{ "%.2f"|format(r.optimization.learned.yield) }}%</td>
+            <td>{{ "%.2f"|format(r.optimization.learned.purity) }}%</td>
+        </tr>
+    </table>
+    <p style="margin-top:0.8rem;font-size:1rem;">
+        Yield difference: <strong>{{ "%.4f"|format(r.optimization.yield_diff) }}%</strong>
+    </p>
+</div>
+{% endif %}
+
+<h2>Comparison Dashboard</h2>
+<div class="card">
+    <img class="chart-img" src="data:image/png;base64,{{ r.chart }}" alt="Comparison Dashboard">
+</div>
+
+<h2>Key Takeaway</h2>
+<div class="card">
+    <p style="font-size: 1.05rem; line-height: 1.6;">
+        The modelless predictor successfully learned the system's behaviour from
+        TCP-streamed observations alone, achieving <strong>near-perfect agreement</strong>
+        with the explicit model on both prediction and optimisation tasks.
+    </p>
+    <p style="color: var(--text-muted); line-height: 1.6;">
+        We can replace hand-crafted models with data-driven learners that observe
+        system outputs — no explicit model knowledge required.
+    </p>
+</div>
+{% endblock %}
