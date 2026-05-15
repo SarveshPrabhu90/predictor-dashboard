@@ -942,3 +942,157 @@ def run_optimization_analysis():
         "learned": {"inputs": lrn_x.tolist(), "yield": lrn_yield, "purity": lrn_purity,
                      "gt_yield": float(gt_at_lrn[0]), "gt_purity": float(gt_at_lrn[1])},
     }
+
+
+# ── Constraint verification ───────────────────────────────────────────────
+
+CONSTRAINT_TRAIN = 300
+CONSTRAINT_DEFS = [
+    {"name": "purity_min", "kind": "output", "output": "purity", "op": ">=", "threshold": 88.0},
+    {"name": "yield_positive", "kind": "output", "output": "yield", "op": ">", "threshold": 0.0},
+    {"name": "temperature_range", "kind": "input", "input": "temperature", "idx": 0,
+     "low": 20.0, "high": 80.0},
+    {"name": "flow_rate_range", "kind": "input", "input": "flow_rate", "idx": 1,
+     "low": 1.0, "high": 10.0},
+    {"name": "concentration_range", "kind": "input", "input": "concentration", "idx": 2,
+     "low": 0.1, "high": 5.0},
+]
+
+
+def run_constraint_analysis():
+    """Verify modelless optimizer recommendations against explicit baseline."""
+    t_start = time.time()
+    np.random.seed(42)
+
+    train_in, train_out = collect_observations(CONSTRAINT_TRAIN)
+
+    # Train modelless predictor
+    models = []
+    for i in range(2):
+        m = LinearRegression()
+        m.fit(train_in, train_out[:, i])
+        models.append(m)
+
+    # Run learned optimizer
+    lrn_yield_w = np.array(models[0].coef_)
+    lrn_purity_w = np.array(models[1].coef_)
+    lrn_purity_i = float(models[1].intercept_)
+    c_lrn = -lrn_yield_w
+    A_lrn = [-lrn_purity_w]
+    b_lrn = [-(88.0 - lrn_purity_i)]
+    r_lrn = linprog(c_lrn, A_ub=A_lrn, b_ub=b_lrn, bounds=INPUT_RANGES, method="highs")
+
+    if not r_lrn.success:
+        return {"error": "Modelless optimizer failed."}
+
+    rec = r_lrn.x
+    ml_pred = np.column_stack([m.predict(rec.reshape(1, -1)) for m in models])[0]
+    ml_yield = float(ml_pred[0])
+    ml_purity = float(ml_pred[1])
+
+    # Baseline verification (noise-free ground truth)
+    gt = ground_truth(rec.reshape(1, -1))[0]
+    bl_yield = float(gt[0])
+    bl_purity = float(gt[1])
+    baseline_outputs = {"yield": bl_yield, "purity": bl_purity}
+
+    # Check constraints against baseline
+    checks = []
+    for c in CONSTRAINT_DEFS:
+        if c["kind"] == "output":
+            val = baseline_outputs[c["output"]]
+            th = c["threshold"]
+            if c["op"] == ">=":
+                ok = val >= th
+            else:
+                ok = val > th
+            detail = f"{c['output']}={val:.4f} {c['op']} {th}"
+        else:
+            val = float(rec[c["idx"]])
+            ok = c["low"] <= val <= c["high"]
+            detail = f"{c['input']}={val:.4f} in [{c['low']}, {c['high']}]"
+        checks.append({
+            "name": c["name"],
+            "detail": detail,
+            "value": round(val, 4),
+            "passed": ok,
+        })
+
+    recommendation_safe = all(ch["passed"] for ch in checks)
+
+    # Recommended inputs
+    rec_inputs = {INPUT_NAMES[i]: round(float(rec[i]), 4) for i in range(3)}
+
+    # Chart: bar comparison + pass/fail indicators
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    safe_color = "#2ca02c" if recommendation_safe else "#d62728"
+    fig.suptitle(f"Constraint Verification  —  recommendation_safe = {recommendation_safe}",
+                 fontsize=13, fontweight="bold", color=safe_color)
+
+    # Output comparison
+    ax = axes[0]
+    labels = ["Yield", "Purity"]
+    ml_vals = [ml_yield, ml_purity]
+    bl_vals = [bl_yield, bl_purity]
+    x_pos = np.arange(2)
+    w = 0.35
+    ax.bar(x_pos - w / 2, ml_vals, w, label="Modelless Predicted", color="#d62728", alpha=0.8)
+    ax.bar(x_pos + w / 2, bl_vals, w, label="Baseline Verified", color="#2ca02c", alpha=0.8)
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(labels)
+    ax.set_title("Predicted vs Baseline Outputs")
+    ax.legend(fontsize=8)
+    ax.axhline(88.0, color="orange", ls="--", lw=1.5, label="Purity ≥ 88%")
+
+    # Constraint pass/fail
+    ax = axes[1]
+    names = [ch["name"].replace("_", " ").title() for ch in checks]
+    colors = ["#2ca02c" if ch["passed"] else "#d62728" for ch in checks]
+    ax.barh(range(len(checks)), [1] * len(checks), color=colors, alpha=0.8,
+            edgecolor="white", linewidth=2)
+    ax.set_yticks(range(len(checks)))
+    ax.set_yticklabels(names, fontsize=9)
+    ax.set_xlim(0, 1.2)
+    ax.set_xticks([])
+    ax.set_title("Constraint Pass / Fail")
+    for i, ch in enumerate(checks):
+        label = "PASS" if ch["passed"] else "FAIL"
+        ax.text(0.5, i, label, ha="center", va="center", fontweight="bold",
+                fontsize=11, color="white")
+    ax.invert_yaxis()
+
+    plt.tight_layout(rect=[0, 0, 1, 0.93])
+    chart = _fig_to_base64(fig)
+
+    duration = time.time() - t_start
+    write_manifest(
+        OUTPUT_DIR,
+        analysis_type="constraint_verification",
+        data_type="synthetic",
+        explicit_model_source="known coefficients + TCP server",
+        explicit_model_version="1.0.0",
+        modelless_model_type="LinearRegression",
+        sample_size={"train": CONSTRAINT_TRAIN},
+        train_test_split=None,
+        random_seed=42,
+        noise_level=NOISE_STD,
+        constraints_used={c["name"]: c for c in CONSTRAINT_DEFS},
+        metrics={"recommendation_safe": recommendation_safe},
+        all_checks_pass=recommendation_safe,
+        plot_files=["(base64 embedded)"],
+        metric_files=[],
+        prediction_files=[],
+        residual_files=[],
+        optimization_files=["(base64 embedded)"],
+        duration_seconds=round(duration, 2),
+    )
+
+    return {
+        "n_train": CONSTRAINT_TRAIN,
+        "rec_inputs": rec_inputs,
+        "modelless": {"yield": ml_yield, "purity": ml_purity},
+        "baseline": {"yield": bl_yield, "purity": bl_purity},
+        "checks": checks,
+        "recommendation_safe": recommendation_safe,
+        "chart": chart,
+    }

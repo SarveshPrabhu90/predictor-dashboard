@@ -69,6 +69,17 @@ def optimization():
     return render_template("optimization.html", r=results)
 
 
+@bp.route("/constraints")
+def constraints():
+    if not analysis.server_is_available():
+        return render_template("error.html",
+                               message="TCP server is not running. Start explicit-model on port 9100.")
+    results = analysis.run_constraint_analysis()
+    if "error" in results:
+        return render_template("error.html", message=results["error"])
+    return render_template("constraints.html", r=results)
+
+
 # ── JSON API endpoints ─────────────────────────────────────────────────────
 
 @bp.route("/api/status")
@@ -127,5 +138,14 @@ def api_optimization():
     if not analysis.server_is_available():
         return jsonify({"error": "TCP server not available"}), 503
     results = analysis.run_optimization_analysis()
+    results.pop("chart", None)
+    return jsonify(results)
+
+
+@bp.route("/api/constraints")
+def api_constraints():
+    if not analysis.server_is_available():
+        return jsonify({"error": "TCP server not available"}), 503
+    results = analysis.run_constraint_analysis()
     results.pop("chart", None)
     return jsonify(results)

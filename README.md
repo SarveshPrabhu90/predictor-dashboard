@@ -19,6 +19,7 @@ approaches produce near-identical results.
 | **Sensitivity** | `/sensitivity` | Sample-size sweep — R², MAE, RMSE at n = 5, 10, 25, 50, 100, 200 |
 | **Residuals** | `/residuals` | Per-observation error analysis — summary stats, actual vs predicted, residual plots |
 | **Optimization** | `/optimization` | Explicit vs learned optimizer agreement — match score, input/output comparison |
+| **Constraints** | `/constraints` | Verify modelless recommendations against baseline — pass/fail per constraint |
 
 ### API Endpoints
 
@@ -31,6 +32,7 @@ approaches produce near-identical results.
 | `GET /api/sensitivity` | Sample-size sensitivity sweep results (JSON) |
 | `GET /api/residuals` | Residual summary statistics (JSON) |
 | `GET /api/optimization` | Optimization agreement results (JSON) |
+| `GET /api/constraints` | Constraint verification results (JSON) |
 
 ## Architecture
 

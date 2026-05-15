@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Constraint Verification — Predictor Dashboard{% endblock %}
+
+{% block content %}
+<h1>Constraint Verification</h1>
+<p style="color: var(--text-muted);">
+    The modelless optimizer (trained on {{ r.n_train }} observations) recommends
+    an input setting.  We verify that recommendation against the explicit baseline
+    to check whether all constraints still hold.
+</p>
+
+<div class="card-grid">
+    <div class="stat-card" style="border-left: 4px solid {{ '#2ca02c' if r.recommendation_safe else '#d62728' }};">
+        <div class="value" style="color: {{ '#2ca02c' if r.recommendation_safe else '#d62728' }};">
+            {{ "SAFE" if r.recommendation_safe else "UNSAFE" }}
+        </div>
+        <div class="label">recommendation_safe</div>
+    </div>
+    <div class="stat-card">
+        <div class="value">{{ r.checks|selectattr('passed')|list|length }} / {{ r.checks|length }}</div>
+        <div class="label">Constraints Passed</div>
+    </div>
+</div>
+
+<h2>Recommended Inputs</h2>
+<table>
+    <thead>
+        <tr><th>Input</th><th>Value</th></tr>
+    </thead>
+    <tbody>
+        {% for name, val in r.rec_inputs.items() %}
+        <tr>
+            <td><strong>{{ name.replace("_", " ").title() }}</strong></td>
+            <td>{{ "%.4f"|format(val) }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h2>Predicted vs Baseline Outputs</h2>
+<table>
+    <thead>
+        <tr><th>Output</th><th>Modelless Predicted</th><th>Baseline Verified</th><th>|Difference|</th></tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>Yield</strong></td>
+            <td>{{ "%.4f"|format(r.modelless.yield) }}</td>
+            <td>{{ "%.4f"|format(r.baseline.yield) }}</td>
+            <td>{{ "%.4f"|format((r.modelless.yield - r.baseline.yield)|abs) }}</td>
+        </tr>
+        <tr>
+            <td><strong>Purity</strong></td>
+            <td>{{ "%.4f"|format(r.modelless.purity) }}</td>
+            <td>{{ "%.4f"|format(r.baseline.purity) }}</td>
+            <td>{{ "%.4f"|format((r.modelless.purity - r.baseline.purity)|abs) }}</td>
+        </tr>
+    </tbody>
+</table>
+
+<h2>Constraint Check Results</h2>
+<table>
+    <thead>
+        <tr><th>Constraint</th><th>Detail</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+        {% for ch in r.checks %}
+        <tr>
+            <td><strong>{{ ch.name.replace("_", " ").title() }}</strong></td>
+            <td><code>{{ ch.detail }}</code></td>
+            <td style="color: {{ '#2ca02c' if ch.passed else '#d62728' }}; font-weight: bold;">
+                {{ "PASS" if ch.passed else "FAIL" }}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h2>Charts</h2>
+<img src="data:image/png;base64,{{ r.chart }}" alt="Constraint Charts"
+     style="width:100%; max-width:1000px; border-radius:8px;">
+
+<h2>How to Interpret</h2>
+<div class="check-box" style="border-left: 3px solid var(--accent);">
+    <ul>
+        <li><strong>recommendation_safe = true</strong> means every constraint passes when
+            the modelless recommendation is checked against the noise-free explicit baseline.</li>
+        <li><strong>Output differences</strong> between modelless predictions and baseline
+            outputs arise because the learned model trains on noisy data. Small differences
+            are expected.</li>
+        <li><strong>Purity constraint</strong> is the most critical — if purity falls below
+            the threshold under baseline verification, the recommendation is not safe
+            for production.</li>
+        <li><strong>Input range constraints</strong> should always pass since the LP
+            optimizer enforces bounds. They're included as a sanity check.</li>
+    </ul>
+</div>
+{% endblock %}
